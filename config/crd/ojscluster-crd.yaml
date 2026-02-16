@@ -1,0 +1,202 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: ojsclusters.ojs.openjobspec.dev
+  annotations:
+    controller-gen.kubebuilder.io/version: (devel)
+spec:
+  group: ojs.openjobspec.dev
+  names:
+    kind: OJSCluster
+    listKind: OJSClusterList
+    plural: ojsclusters
+    singular: ojscluster
+    shortNames:
+      - ojs
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - name: Backend
+          type: string
+          jsonPath: .spec.backend.type
+        - name: Replicas
+          type: integer
+          jsonPath: .status.replicas
+        - name: Ready
+          type: integer
+          jsonPath: .status.readyReplicas
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      subresources:
+        status: {}
+      schema:
+        openAPIV3Schema:
+          description: OJSCluster is the Schema for the ojsclusters API.
+          type: object
+          required:
+            - spec
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: OJSClusterSpec defines the desired state of an OJS cluster.
+              type: object
+              required:
+                - backend
+              properties:
+                backend:
+                  description: Backend storage configuration.
+                  type: object
+                  required:
+                    - type
+                  properties:
+                    type:
+                      description: 'Type of backend: "redis", "postgres", or "nats".'
+                      type: string
+                      enum:
+                        - redis
+                        - postgres
+                        - nats
+                    url:
+                      description: Connection URL for the backend.
+                      type: string
+                    urlSecretRef:
+                      description: Reference to a Secret key containing the connection URL.
+                      type: object
+                      required:
+                        - name
+                        - key
+                      properties:
+                        name:
+                          type: string
+                        key:
+                          type: string
+                    embedded:
+                      description: Embedded enables auto-deployment of the backend.
+                      type: boolean
+                      default: false
+                replicas:
+                  description: Server replicas (default 2).
+                  type: integer
+                  format: int32
+                  minimum: 1
+                image:
+                  description: Image to use for the OJS server.
+                  type: string
+                autoScaling:
+                  description: Worker auto-scaling configuration.
+                  type: object
+                  required:
+                    - enabled
+                    - minReplicas
+                    - maxReplicas
+                    - targetQueueDepth
+                  properties:
+                    enabled:
+                      type: boolean
+                    minReplicas:
+                      type: integer
+                      format: int32
+                      minimum: 1
+                    maxReplicas:
+                      type: integer
+                      format: int32
+                    targetQueueDepth:
+                      type: integer
+                      format: int64
+                    targetJobsPerWorker:
+                      type: integer
+                      format: int64
+                    scaleUpCooldown:
+                      type: string
+                    scaleDownCooldown:
+                      type: string
+                resources:
+                  description: Resource requirements for the OJS server pods.
+                  type: object
+                  properties:
+                    limits:
+                      type: object
+                      additionalProperties:
+                        anyOf:
+                          - type: integer
+                          - type: string
+                        x-kubernetes-int-or-string: true
+                    requests:
+                      type: object
+                      additionalProperties:
+                        anyOf:
+                          - type: integer
+                          - type: string
+                        x-kubernetes-int-or-string: true
+                monitoring:
+                  description: Monitoring configuration.
+                  type: object
+                  required:
+                    - enabled
+                  properties:
+                    enabled:
+                      type: boolean
+                    serviceMonitor:
+                      type: boolean
+                    grafanaDashboard:
+                      type: boolean
+            status:
+              description: OJSClusterStatus defines the observed state of an OJS cluster.
+              type: object
+              properties:
+                phase:
+                  description: 'Phase of the cluster: Pending, Running, Scaling, Error.'
+                  type: string
+                replicas:
+                  type: integer
+                  format: int32
+                readyReplicas:
+                  type: integer
+                  format: int32
+                queueDepth:
+                  type: integer
+                  format: int64
+                activeJobs:
+                  type: integer
+                  format: int64
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - lastTransitionTime
+                      - reason
+                      - message
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string
