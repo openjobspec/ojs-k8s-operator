@@ -1,0 +1,80 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ojs-operator-manager-role
+rules:
+  - apiGroups:
+      - ojs.openjobspec.dev
+    resources:
+      - ojsclusters
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - ojs.openjobspec.dev
+    resources:
+      - ojsclusters/status
+    verbs:
+      - get
+      - patch
+      - update
+  - apiGroups:
+      - ojs.openjobspec.dev
+    resources:
+      - ojsclusters/finalizers
+    verbs:
+      - update
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - services
+      - configmaps
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - autoscaling
+    resources:
+      - horizontalpodautoscalers
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - monitoring.coreos.com
+    resources:
+      - servicemonitors
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
