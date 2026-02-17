@@ -1,0 +1,11 @@
+# Minimal OJSCluster with external Redis
+apiVersion: ojs.openjobspec.dev/v1alpha1
+kind: OJSCluster
+metadata:
+  name: ojs-basic
+  namespace: default
+spec:
+  backend:
+    type: redis
+    url: "redis://redis.default.svc.cluster.local:6379"
+  replicas: 2

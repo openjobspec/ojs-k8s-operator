@@ -1,0 +1,78 @@
+# OJSWorker sample: email processing worker with auto-scaling
+apiVersion: ojs.openjobspec.dev/v1alpha1
+kind: OJSWorker
+metadata:
+  name: email-worker
+  namespace: ojs-system
+spec:
+  clusterRef: ojs-production
+  jobTypes:
+    - email.send
+    - email.digest
+    - email.welcome
+  queues:
+    - emails
+    - notifications
+  concurrency: 10
+  replicas: 2
+  image: myapp/email-worker:latest
+  env:
+    - name: SMTP_HOST
+      value: smtp.example.com
+    - name: SMTP_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: smtp-credentials
+          key: password
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+  autoScaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 20
+    targetJobsPerWorker: 5
+    scaleUpThreshold: 50
+    scaleDownDelay: "5m"
+    pollingInterval: "30s"
+  gracefulShutdown:
+    timeoutSeconds: 60
+    drainBeforeShutdown: true
+---
+# OJSWorker sample: data processing worker with high concurrency
+apiVersion: ojs.openjobspec.dev/v1alpha1
+kind: OJSWorker
+metadata:
+  name: data-processor
+  namespace: ojs-system
+spec:
+  clusterRef: ojs-production
+  jobTypes:
+    - data.transform
+    - data.aggregate
+    - report.generate
+  queues:
+    - data-processing
+  concurrency: 50
+  replicas: 3
+  image: myapp/data-worker:latest
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+    limits:
+      cpu: "2"
+      memory: "2Gi"
+  autoScaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 50
+    targetJobsPerWorker: 10
+    pollingInterval: "15s"
+  gracefulShutdown:
+    timeoutSeconds: 120
+    drainBeforeShutdown: true

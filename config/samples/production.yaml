@@ -1,0 +1,31 @@
+# Production OJSCluster with embedded Redis, auto-scaling, and monitoring
+apiVersion: ojs.openjobspec.dev/v1alpha1
+kind: OJSCluster
+metadata:
+  name: ojs-production
+  namespace: ojs-system
+spec:
+  backend:
+    type: redis
+    embedded: true
+  replicas: 3
+  image: ghcr.io/openjobspec/ojs-backend-redis:v0.1.0
+  autoScaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetQueueDepth: 100
+    targetJobsPerWorker: 5
+    scaleUpCooldown: "60s"
+    scaleDownCooldown: "300s"
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "256Mi"
+    limits:
+      cpu: "1"
+      memory: "512Mi"
+  monitoring:
+    enabled: true
+    serviceMonitor: true
+    grafanaDashboard: true
