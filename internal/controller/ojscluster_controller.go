@@ -9,9 +9,12 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -21,18 +24,22 @@ import (
 )
 
 const (
-	ojsFinalizer   = "ojs.openjobspec.dev/finalizer"
-	defaultImage   = "ghcr.io/openjobspec/ojs-server:latest"
-	defaultPort    = 8080
-	metricsPort    = 9090
-	condReady      = "Ready"
-	condBackend    = "BackendReady"
+	ojsFinalizer     = "ojs.openjobspec.dev/finalizer"
+	defaultImage     = "ghcr.io/openjobspec/ojs-server:latest"
+	defaultPort      = 8080
+	metricsPort      = 9090
+	condReady        = "Ready"
+	condAvailable    = "Available"
+	condProgressing  = "Progressing"
+	condDegraded     = "Degraded"
+	condBackend      = "BackendReady"
 )
 
 // OJSClusterReconciler reconciles OJSCluster objects.
 type OJSClusterReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=ojs.openjobspec.dev,resources=ojsclusters,verbs=get;list;watch;create;update;patch;delete
@@ -40,6 +47,8 @@ type OJSClusterReconciler struct {
 // +kubebuilder:rbac:groups=ojs.openjobspec.dev,resources=ojsclusters/finalizers,verbs=update
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=services;configmaps,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile handles create/update/delete of OJSCluster resources.
 func (r *OJSClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -56,6 +65,7 @@ func (r *OJSClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	// Handle deletion
 	if !cluster.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(cluster, ojsFinalizer) {
+			r.recordEvent(cluster, corev1.EventTypeNormal, "Deleting", "Cleaning up child resources")
 			controllerutil.RemoveFinalizer(cluster, ojsFinalizer)
 			if err := r.Update(ctx, cluster); err != nil {
 				return ctrl.Result{}, err
@@ -75,9 +85,11 @@ func (r *OJSClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	// Set phase to Pending if empty
 	if cluster.Status.Phase == "" {
 		cluster.Status.Phase = "Pending"
+		r.setCondition(cluster, condProgressing, metav1.ConditionTrue, "Reconciling", "Initial reconciliation in progress")
 		if err := r.Status().Update(ctx, cluster); err != nil {
 			return ctrl.Result{}, err
 		}
+		r.recordEvent(cluster, corev1.EventTypeNormal, "Reconciling", "Starting initial reconciliation")
 	}
 
 	// Reconcile embedded backend if requested
@@ -85,7 +97,9 @@ func (r *OJSClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if err := r.reconcileEmbeddedBackend(ctx, cluster); err != nil {
 			logger.Error(err, "failed to reconcile embedded backend")
 			r.setCondition(cluster, condBackend, metav1.ConditionFalse, "BackendFailed", err.Error())
+			r.setCondition(cluster, condDegraded, metav1.ConditionTrue, "BackendFailed", err.Error())
 			_ = r.Status().Update(ctx, cluster)
+			r.recordEvent(cluster, corev1.EventTypeWarning, "BackendFailed", err.Error())
 			return ctrl.Result{}, err
 		}
 		r.setCondition(cluster, condBackend, metav1.ConditionTrue, "BackendReady", "Embedded backend is running")
@@ -111,7 +125,10 @@ func (r *OJSClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	// Reconcile ServiceMonitor if monitoring enabled
 	if cluster.Spec.Monitoring != nil && cluster.Spec.Monitoring.Enabled && cluster.Spec.Monitoring.ServiceMonitor {
-		logger.Info("ServiceMonitor reconciliation requested (requires prometheus-operator CRDs)")
+		if err := r.reconcileServiceMonitor(ctx, cluster); err != nil {
+			logger.Error(err, "failed to reconcile ServiceMonitor")
+			r.recordEvent(cluster, corev1.EventTypeWarning, "ServiceMonitorFailed", err.Error())
+		}
 	}
 
 	// Update status from Deployment
@@ -358,11 +375,60 @@ func (r *OJSClusterReconciler) reconcileEmbeddedRedis(ctx context.Context, clust
 	return err
 }
 
+func (r *OJSClusterReconciler) reconcileServiceMonitor(ctx context.Context, cluster *ojsv1alpha1.OJSCluster) error {
+	sm := &unstructured.Unstructured{}
+	sm.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "monitoring.coreos.com",
+		Version: "v1",
+		Kind:    "ServiceMonitor",
+	})
+	sm.SetName(cluster.Name + "-server")
+	sm.SetNamespace(cluster.Namespace)
+
+	labels := labelsForCluster(cluster.Name)
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, sm, func() error {
+		if err := ctrl.SetControllerReference(cluster, sm, r.Scheme); err != nil {
+			return err
+		}
+		sm.SetLabels(labels)
+		sm.Object["spec"] = map[string]interface{}{
+			"selector": map[string]interface{}{
+				"matchLabels": labels,
+			},
+			"namespaceSelector": map[string]interface{}{
+				"matchNames": []interface{}{cluster.Namespace},
+			},
+			"endpoints": []interface{}{
+				map[string]interface{}{
+					"port":     "metrics",
+					"path":     "/metrics",
+					"interval": "30s",
+				},
+			},
+		}
+		return nil
+	})
+	return err
+}
+
+func (r *OJSClusterReconciler) recordEvent(cluster *ojsv1alpha1.OJSCluster, eventType, reason, message string) {
+	if r.Recorder != nil {
+		r.Recorder.Event(cluster, eventType, reason, message)
+	}
+}
+
 func (r *OJSClusterReconciler) updateStatus(ctx context.Context, cluster *ojsv1alpha1.OJSCluster) error {
+	previousPhase := cluster.Status.Phase
+
 	dep := &appsv1.Deployment{}
 	if err := r.Get(ctx, types.NamespacedName{Name: cluster.Name + "-server", Namespace: cluster.Namespace}, dep); err != nil {
 		if errors.IsNotFound(err) {
 			cluster.Status.Phase = "Pending"
+			r.setCondition(cluster, condReady, metav1.ConditionFalse, "DeploymentNotFound", "Server deployment does not exist yet")
+			r.setCondition(cluster, condAvailable, metav1.ConditionFalse, "DeploymentNotFound", "Server deployment does not exist yet")
+			r.setCondition(cluster, condProgressing, metav1.ConditionTrue, "DeploymentPending", "Waiting for deployment to be created")
+			r.setCondition(cluster, condDegraded, metav1.ConditionFalse, "NotApplicable", "Cluster is still initializing")
 		} else {
 			return err
 		}
@@ -373,13 +439,32 @@ func (r *OJSClusterReconciler) updateStatus(ctx context.Context, cluster *ojsv1a
 		if dep.Status.ReadyReplicas == dep.Status.Replicas && dep.Status.Replicas > 0 {
 			cluster.Status.Phase = "Running"
 			r.setCondition(cluster, condReady, metav1.ConditionTrue, "AllReplicasReady", "All server replicas are ready")
+			r.setCondition(cluster, condAvailable, metav1.ConditionTrue, "DeploymentAvailable",
+				fmt.Sprintf("%d/%d replicas available", dep.Status.ReadyReplicas, dep.Status.Replicas))
+			r.setCondition(cluster, condProgressing, metav1.ConditionFalse, "DeploymentComplete", "Deployment rollout complete")
+			r.setCondition(cluster, condDegraded, metav1.ConditionFalse, "AllReplicasReady", "All server replicas are ready")
 		} else if dep.Status.ReadyReplicas > 0 {
 			cluster.Status.Phase = "Scaling"
 			r.setCondition(cluster, condReady, metav1.ConditionFalse, "ScalingInProgress", "Not all replicas are ready")
+			r.setCondition(cluster, condAvailable, metav1.ConditionTrue, "PartiallyAvailable",
+				fmt.Sprintf("%d/%d replicas available", dep.Status.ReadyReplicas, dep.Status.Replicas))
+			r.setCondition(cluster, condProgressing, metav1.ConditionTrue, "ScalingInProgress",
+				fmt.Sprintf("Scaling from %d to %d replicas", dep.Status.ReadyReplicas, dep.Status.Replicas))
+			r.setCondition(cluster, condDegraded, metav1.ConditionTrue, "InsufficientReplicas",
+				fmt.Sprintf("Only %d of %d replicas ready", dep.Status.ReadyReplicas, dep.Status.Replicas))
 		} else {
 			cluster.Status.Phase = "Pending"
 			r.setCondition(cluster, condReady, metav1.ConditionFalse, "NoReplicasReady", "No replicas are ready yet")
+			r.setCondition(cluster, condAvailable, metav1.ConditionFalse, "NoReplicasReady", "No replicas are available")
+			r.setCondition(cluster, condProgressing, metav1.ConditionTrue, "DeploymentInProgress", "Waiting for replicas to become ready")
+			r.setCondition(cluster, condDegraded, metav1.ConditionFalse, "Initializing", "Cluster is still starting up")
 		}
+	}
+
+	// Record event on phase transition
+	if previousPhase != "" && previousPhase != cluster.Status.Phase {
+		r.recordEvent(cluster, corev1.EventTypeNormal, "PhaseChanged",
+			fmt.Sprintf("Cluster transitioned from %s to %s", previousPhase, cluster.Status.Phase))
 	}
 
 	return r.Status().Update(ctx, cluster)
@@ -405,6 +490,12 @@ func (r *OJSClusterReconciler) resolveBackendURL(cluster *ojsv1alpha1.OJSCluster
 			return fmt.Sprintf("redis://%s-redis.%s.svc.cluster.local:6379", cluster.Name, cluster.Namespace)
 		case "postgres":
 			return fmt.Sprintf("postgres://%s-postgres.%s.svc.cluster.local:5432/ojs?sslmode=disable", cluster.Name, cluster.Namespace)
+		case "nats":
+			return fmt.Sprintf("nats://%s-nats.%s.svc.cluster.local:4222", cluster.Name, cluster.Namespace)
+		case "kafka":
+			return fmt.Sprintf("%s-kafka.%s.svc.cluster.local:9092", cluster.Name, cluster.Namespace)
+		case "sqs":
+			return fmt.Sprintf("https://sqs.%s-sqs.%s.svc.cluster.local", cluster.Name, cluster.Namespace)
 		}
 	}
 	return ""
@@ -414,6 +505,14 @@ func backendURLEnvVar(backendType string) string {
 	switch backendType {
 	case "postgres":
 		return "DATABASE_URL"
+	case "nats":
+		return "NATS_URL"
+	case "kafka":
+		return "KAFKA_BROKERS"
+	case "sqs":
+		return "SQS_QUEUE_URL"
+	case "lite":
+		return "BACKEND_URL"
 	default:
 		return "REDIS_URL"
 	}

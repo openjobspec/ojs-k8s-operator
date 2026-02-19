@@ -6,12 +6,14 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -21,15 +23,19 @@ import (
 )
 
 const (
-	workerFinalizer = "ojs.openjobspec.dev/worker-finalizer"
-	condWorkerReady = "Ready"
-	condScaling     = "Scaling"
+	workerFinalizer    = "ojs.openjobspec.dev/worker-finalizer"
+	condWorkerReady    = "Ready"
+	condWorkerAvail    = "Available"
+	condWorkerProgress = "Progressing"
+	condWorkerDegraded = "Degraded"
+	condScaling        = "Scaling"
 )
 
 // OJSWorkerReconciler reconciles OJSWorker objects.
 type OJSWorkerReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=ojs.openjobspec.dev,resources=ojsworkers,verbs=get;list;watch;create;update;patch;delete
@@ -37,6 +43,8 @@ type OJSWorkerReconciler struct {
 // +kubebuilder:rbac:groups=ojs.openjobspec.dev,resources=ojsworkers/scale,verbs=get;update;patch
 // +kubebuilder:rbac:groups=ojs.openjobspec.dev,resources=ojsworkers/finalizers,verbs=update
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=autoscaling,resources=horizontalpodautoscalers,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
 
 // Reconcile handles create/update/delete of OJSWorker resources.
 func (r *OJSWorkerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -53,6 +61,7 @@ func (r *OJSWorkerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// Handle deletion
 	if !worker.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(worker, workerFinalizer) {
+			r.recordEvent(worker, corev1.EventTypeNormal, "Deleting", "Cleaning up worker resources")
 			controllerutil.RemoveFinalizer(worker, workerFinalizer)
 			if err := r.Update(ctx, worker); err != nil {
 				return ctrl.Result{}, err
@@ -75,8 +84,12 @@ func (r *OJSWorkerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if errors.IsNotFound(err) {
 			r.setWorkerCondition(worker, condWorkerReady, metav1.ConditionFalse, "ClusterNotFound",
 				fmt.Sprintf("OJSCluster %q not found", worker.Spec.ClusterRef))
+			r.setWorkerCondition(worker, condWorkerDegraded, metav1.ConditionTrue, "ClusterNotFound",
+				fmt.Sprintf("OJSCluster %q not found", worker.Spec.ClusterRef))
 			worker.Status.Phase = "Error"
 			_ = r.Status().Update(ctx, worker)
+			r.recordEvent(worker, corev1.EventTypeWarning, "ClusterNotFound",
+				fmt.Sprintf("Referenced OJSCluster %q not found", worker.Spec.ClusterRef))
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 		return ctrl.Result{}, err
@@ -85,6 +98,12 @@ func (r *OJSWorkerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// Reconcile the worker Deployment
 	if err := r.reconcileWorkerDeployment(ctx, worker, cluster); err != nil {
 		logger.Error(err, "failed to reconcile worker deployment")
+		return ctrl.Result{}, err
+	}
+
+	// Reconcile HPA if autoscaling is configured
+	if err := r.reconcileWorkerHPA(ctx, worker); err != nil {
+		logger.Error(err, "failed to reconcile worker HPA")
 		return ctrl.Result{}, err
 	}
 
@@ -179,10 +198,16 @@ func (r *OJSWorkerReconciler) reconcileWorkerDeployment(ctx context.Context, wor
 }
 
 func (r *OJSWorkerReconciler) updateWorkerStatus(ctx context.Context, worker *ojsv1alpha1.OJSWorker) error {
+	previousPhase := worker.Status.Phase
+
 	dep := &appsv1.Deployment{}
 	if err := r.Get(ctx, types.NamespacedName{Name: worker.Name, Namespace: worker.Namespace}, dep); err != nil {
 		if errors.IsNotFound(err) {
 			worker.Status.Phase = "Pending"
+			r.setWorkerCondition(worker, condWorkerReady, metav1.ConditionFalse, "DeploymentNotFound", "Worker deployment does not exist yet")
+			r.setWorkerCondition(worker, condWorkerAvail, metav1.ConditionFalse, "DeploymentNotFound", "Worker deployment does not exist yet")
+			r.setWorkerCondition(worker, condWorkerProgress, metav1.ConditionTrue, "DeploymentPending", "Waiting for deployment to be created")
+			r.setWorkerCondition(worker, condWorkerDegraded, metav1.ConditionFalse, "NotApplicable", "Worker is still initializing")
 		} else {
 			return err
 		}
@@ -193,13 +218,32 @@ func (r *OJSWorkerReconciler) updateWorkerStatus(ctx context.Context, worker *oj
 		if dep.Status.ReadyReplicas == dep.Status.Replicas && dep.Status.Replicas > 0 {
 			worker.Status.Phase = "Running"
 			r.setWorkerCondition(worker, condWorkerReady, metav1.ConditionTrue, "AllReplicasReady", "All worker replicas are ready")
+			r.setWorkerCondition(worker, condWorkerAvail, metav1.ConditionTrue, "DeploymentAvailable",
+				fmt.Sprintf("%d/%d replicas available", dep.Status.ReadyReplicas, dep.Status.Replicas))
+			r.setWorkerCondition(worker, condWorkerProgress, metav1.ConditionFalse, "DeploymentComplete", "Deployment rollout complete")
+			r.setWorkerCondition(worker, condWorkerDegraded, metav1.ConditionFalse, "AllReplicasReady", "All worker replicas are ready")
 		} else if dep.Status.ReadyReplicas > 0 {
 			worker.Status.Phase = "Scaling"
 			r.setWorkerCondition(worker, condWorkerReady, metav1.ConditionFalse, "ScalingInProgress", "Not all replicas are ready")
+			r.setWorkerCondition(worker, condWorkerAvail, metav1.ConditionTrue, "PartiallyAvailable",
+				fmt.Sprintf("%d/%d replicas available", dep.Status.ReadyReplicas, dep.Status.Replicas))
+			r.setWorkerCondition(worker, condWorkerProgress, metav1.ConditionTrue, "ScalingInProgress",
+				fmt.Sprintf("Scaling from %d to %d replicas", dep.Status.ReadyReplicas, dep.Status.Replicas))
+			r.setWorkerCondition(worker, condWorkerDegraded, metav1.ConditionTrue, "InsufficientReplicas",
+				fmt.Sprintf("Only %d of %d replicas ready", dep.Status.ReadyReplicas, dep.Status.Replicas))
 		} else {
 			worker.Status.Phase = "Pending"
 			r.setWorkerCondition(worker, condWorkerReady, metav1.ConditionFalse, "NoReplicasReady", "No worker replicas are ready yet")
+			r.setWorkerCondition(worker, condWorkerAvail, metav1.ConditionFalse, "NoReplicasReady", "No worker replicas are available")
+			r.setWorkerCondition(worker, condWorkerProgress, metav1.ConditionTrue, "DeploymentInProgress", "Waiting for replicas to become ready")
+			r.setWorkerCondition(worker, condWorkerDegraded, metav1.ConditionFalse, "Initializing", "Worker is still starting up")
 		}
+	}
+
+	// Record event on phase transition
+	if previousPhase != "" && previousPhase != worker.Status.Phase {
+		r.recordEvent(worker, corev1.EventTypeNormal, "PhaseChanged",
+			fmt.Sprintf("Worker transitioned from %s to %s", previousPhase, worker.Status.Phase))
 	}
 
 	return r.Status().Update(ctx, worker)
@@ -213,6 +257,12 @@ func (r *OJSWorkerReconciler) setWorkerCondition(worker *ojsv1alpha1.OJSWorker, 
 		Message:            message,
 		ObservedGeneration: worker.Generation,
 	})
+}
+
+func (r *OJSWorkerReconciler) recordEvent(worker *ojsv1alpha1.OJSWorker, eventType, reason, message string) {
+	if r.Recorder != nil {
+		r.Recorder.Event(worker, eventType, reason, message)
+	}
 }
 
 func labelsForWorker(workerName, clusterName string) map[string]string {
@@ -242,6 +292,55 @@ func (r *OJSWorkerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&ojsv1alpha1.OJSWorker{}).
 		Owns(&appsv1.Deployment{}).
+		Owns(&autoscalingv2.HorizontalPodAutoscaler{}).
 		Named("ojsworker").
 		Complete(r)
 }
+
+func (r *OJSWorkerReconciler) reconcileWorkerHPA(ctx context.Context, worker *ojsv1alpha1.OJSWorker) error {
+	hpa := &autoscalingv2.HorizontalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      worker.Name + "-hpa",
+			Namespace: worker.Namespace,
+		},
+	}
+
+	if worker.Spec.AutoScaling == nil || !worker.Spec.AutoScaling.Enabled {
+		// Delete HPA if autoscaling is disabled
+		if err := r.Get(ctx, types.NamespacedName{Name: hpa.Name, Namespace: hpa.Namespace}, hpa); err == nil {
+			return r.Delete(ctx, hpa)
+		}
+		return nil
+	}
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, hpa, func() error {
+		if err := ctrl.SetControllerReference(worker, hpa, r.Scheme); err != nil {
+			return err
+		}
+
+		hpa.Labels = labelsForWorker(worker.Name, worker.Spec.ClusterRef)
+		hpa.Spec.ScaleTargetRef = autoscalingv2.CrossVersionObjectReference{
+			APIVersion: "apps/v1",
+			Kind:       "Deployment",
+			Name:       worker.Name,
+		}
+		hpa.Spec.MinReplicas = &worker.Spec.AutoScaling.MinReplicas
+		hpa.Spec.MaxReplicas = worker.Spec.AutoScaling.MaxReplicas
+		hpa.Spec.Metrics = []autoscalingv2.MetricSpec{
+			{
+				Type: autoscalingv2.ResourceMetricSourceType,
+				Resource: &autoscalingv2.ResourceMetricSource{
+					Name: corev1.ResourceCPU,
+					Target: autoscalingv2.MetricTarget{
+						Type:               autoscalingv2.UtilizationMetricType,
+						AverageUtilization: int32PtrVal(80),
+					},
+				},
+			},
+		}
+		return nil
+	})
+	return err
+}
+
+func int32PtrVal(i int32) *int32 { return &i }

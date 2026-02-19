@@ -12,6 +12,7 @@ import (
 
 	ojsv1alpha1 "github.com/openjobspec/ojs-k8s-operator/api/v1alpha1"
 	"github.com/openjobspec/ojs-k8s-operator/internal/controller"
+	"github.com/openjobspec/ojs-k8s-operator/internal/webhook"
 )
 
 var (
@@ -40,11 +41,39 @@ func main() {
 	}
 
 	if err = (&controller.OJSClusterReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("ojscluster-controller"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "OJSCluster")
 		os.Exit(1)
+	}
+
+	if err = (&controller.OJSWorkerReconciler{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("ojsworker-controller"),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "OJSWorker")
+		os.Exit(1)
+	}
+
+	// Register validating webhooks (disabled by setting ENABLE_WEBHOOKS=false)
+	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
+		if err = ctrl.NewWebhookManagedBy(mgr).
+			For(&ojsv1alpha1.OJSCluster{}).
+			WithValidator(&webhook.OJSClusterValidator{}).
+			Complete(); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "OJSCluster")
+			os.Exit(1)
+		}
+		if err = ctrl.NewWebhookManagedBy(mgr).
+			For(&ojsv1alpha1.OJSWorker{}).
+			WithValidator(&webhook.OJSWorkerValidator{}).
+			Complete(); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "OJSWorker")
+			os.Exit(1)
+		}
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
