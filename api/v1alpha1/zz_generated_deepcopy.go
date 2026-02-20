@@ -4,6 +4,7 @@
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 )
@@ -182,6 +183,174 @@ func (in *MonitoringSpec) DeepCopy() *MonitoringSpec {
 		return nil
 	}
 	out := new(MonitoringSpec)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyInto copies all properties into another OJSWorker.
+func (in *OJSWorker) DeepCopyInto(out *OJSWorker) {
+	*out = *in
+	out.TypeMeta = in.TypeMeta
+	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
+	in.Spec.DeepCopyInto(&out.Spec)
+	in.Status.DeepCopyInto(&out.Status)
+}
+
+// DeepCopy returns a deep copy of the OJSWorker.
+func (in *OJSWorker) DeepCopy() *OJSWorker {
+	if in == nil {
+		return nil
+	}
+	out := new(OJSWorker)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyObject returns a deep copy as runtime.Object.
+func (in *OJSWorker) DeepCopyObject() runtime.Object {
+	if c := in.DeepCopy(); c != nil {
+		return c
+	}
+	return nil
+}
+
+// DeepCopyInto copies all properties into another OJSWorkerList.
+func (in *OJSWorkerList) DeepCopyInto(out *OJSWorkerList) {
+	*out = *in
+	out.TypeMeta = in.TypeMeta
+	in.ListMeta.DeepCopyInto(&out.ListMeta)
+	if in.Items != nil {
+		in, out := &in.Items, &out.Items
+		*out = make([]OJSWorker, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
+}
+
+// DeepCopy returns a deep copy of the OJSWorkerList.
+func (in *OJSWorkerList) DeepCopy() *OJSWorkerList {
+	if in == nil {
+		return nil
+	}
+	out := new(OJSWorkerList)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyObject returns a deep copy as runtime.Object.
+func (in *OJSWorkerList) DeepCopyObject() runtime.Object {
+	if c := in.DeepCopy(); c != nil {
+		return c
+	}
+	return nil
+}
+
+// DeepCopyInto copies all properties into another OJSWorkerSpec.
+func (in *OJSWorkerSpec) DeepCopyInto(out *OJSWorkerSpec) {
+	*out = *in
+	if in.JobTypes != nil {
+		in, out := &in.JobTypes, &out.JobTypes
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
+	if in.Queues != nil {
+		in, out := &in.Queues, &out.Queues
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
+	if in.Replicas != nil {
+		in, out := &in.Replicas, &out.Replicas
+		*out = new(int32)
+		**out = **in
+	}
+	if in.Command != nil {
+		in, out := &in.Command, &out.Command
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
+	if in.Env != nil {
+		in, out := &in.Env, &out.Env
+		*out = make([]corev1.EnvVar, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
+	in.Resources.DeepCopyInto(&out.Resources)
+	if in.AutoScaling != nil {
+		in, out := &in.AutoScaling, &out.AutoScaling
+		*out = new(WorkerAutoScalingSpec)
+		**out = **in
+	}
+	if in.GracefulShutdown != nil {
+		in, out := &in.GracefulShutdown, &out.GracefulShutdown
+		*out = new(GracefulShutdownSpec)
+		**out = **in
+	}
+}
+
+// DeepCopy returns a deep copy of the OJSWorkerSpec.
+func (in *OJSWorkerSpec) DeepCopy() *OJSWorkerSpec {
+	if in == nil {
+		return nil
+	}
+	out := new(OJSWorkerSpec)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyInto copies all properties into another OJSWorkerStatus.
+func (in *OJSWorkerStatus) DeepCopyInto(out *OJSWorkerStatus) {
+	*out = *in
+	if in.LastScaleTime != nil {
+		in, out := &in.LastScaleTime, &out.LastScaleTime
+		*out = (*in).DeepCopy()
+	}
+	if in.Conditions != nil {
+		in, out := &in.Conditions, &out.Conditions
+		*out = make([]metav1.Condition, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
+}
+
+// DeepCopy returns a deep copy of the OJSWorkerStatus.
+func (in *OJSWorkerStatus) DeepCopy() *OJSWorkerStatus {
+	if in == nil {
+		return nil
+	}
+	out := new(OJSWorkerStatus)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyInto copies all properties into another WorkerAutoScalingSpec.
+func (in *WorkerAutoScalingSpec) DeepCopyInto(out *WorkerAutoScalingSpec) {
+	*out = *in
+}
+
+// DeepCopy returns a deep copy of the WorkerAutoScalingSpec.
+func (in *WorkerAutoScalingSpec) DeepCopy() *WorkerAutoScalingSpec {
+	if in == nil {
+		return nil
+	}
+	out := new(WorkerAutoScalingSpec)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyInto copies all properties into another GracefulShutdownSpec.
+func (in *GracefulShutdownSpec) DeepCopyInto(out *GracefulShutdownSpec) {
+	*out = *in
+}
+
+// DeepCopy returns a deep copy of the GracefulShutdownSpec.
+func (in *GracefulShutdownSpec) DeepCopy() *GracefulShutdownSpec {
+	if in == nil {
+		return nil
+	}
+	out := new(GracefulShutdownSpec)
 	in.DeepCopyInto(out)
 	return out
 }
