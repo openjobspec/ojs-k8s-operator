@@ -64,10 +64,12 @@ func TestReconcile_Deletion(t *testing.T) {
 		t.Fatalf("deletion reconcile failed: %v", err)
 	}
 
-	// Verify finalizer was removed
+	// After finalizer removal with deletion timestamp set, the fake client
+	// may garbage-collect the object. Either it's gone or the finalizer is removed.
 	updated := &ojsv1alpha1.OJSCluster{}
 	if err := client.Get(context.Background(), req.NamespacedName, updated); err != nil {
-		t.Fatalf("failed to get updated cluster: %v", err)
+		// Object was garbage-collected — finalizer removal succeeded
+		return
 	}
 	for _, f := range updated.Finalizers {
 		if f == ojsFinalizer {
@@ -380,7 +382,10 @@ func TestBackendURLEnvVar(t *testing.T) {
 	}{
 		{"redis", "REDIS_URL"},
 		{"postgres", "DATABASE_URL"},
-		{"nats", "REDIS_URL"}, // default case
+		{"nats", "NATS_URL"},
+		{"kafka", "KAFKA_BROKERS"},
+		{"sqs", "SQS_QUEUE_URL"},
+		{"lite", "BACKEND_URL"},
 	}
 
 	for _, tt := range tests {
@@ -390,6 +395,267 @@ func TestBackendURLEnvVar(t *testing.T) {
 				t.Errorf("backendURLEnvVar(%q) = %q, want %q", tt.backendType, got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestReconcile_NATSBackend(t *testing.T) {
+	scheme := newScheme()
+
+	cluster := &ojsv1alpha1.OJSCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "nats-cluster", Namespace: "default"},
+		Spec: ojsv1alpha1.OJSClusterSpec{
+			Backend:  ojsv1alpha1.BackendSpec{Type: "nats", URL: "nats://localhost:4222"},
+			Replicas: int32Ptr(1),
+		},
+	}
+
+	client := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(cluster).
+		WithStatusSubresource(cluster).
+		Build()
+
+	r := &OJSClusterReconciler{Client: client, Scheme: scheme}
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "nats-cluster", Namespace: "default"}}
+
+	if _, err := r.Reconcile(context.Background(), req); err != nil {
+		t.Fatalf("first reconcile failed: %v", err)
+	}
+	if _, err := r.Reconcile(context.Background(), req); err != nil {
+		t.Fatalf("second reconcile failed: %v", err)
+	}
+
+	cm := &corev1.ConfigMap{}
+	if err := client.Get(context.Background(), types.NamespacedName{Name: "nats-cluster-config", Namespace: "default"}, cm); err != nil {
+		t.Fatalf("expected ConfigMap: %v", err)
+	}
+	if cm.Data["BACKEND_TYPE"] != "nats" {
+		t.Errorf("expected backend type nats, got %s", cm.Data["BACKEND_TYPE"])
+	}
+
+	dep := &appsv1.Deployment{}
+	if err := client.Get(context.Background(), types.NamespacedName{Name: "nats-cluster-server", Namespace: "default"}, dep); err != nil {
+		t.Fatalf("expected Deployment: %v", err)
+	}
+
+	envMap := map[string]string{}
+	for _, env := range dep.Spec.Template.Spec.Containers[0].Env {
+		if env.ValueFrom != nil && env.ValueFrom.ConfigMapKeyRef != nil {
+			envMap[env.Name] = env.ValueFrom.ConfigMapKeyRef.Key
+		}
+	}
+	if envMap["NATS_URL"] != "BACKEND_URL" {
+		t.Errorf("expected NATS_URL env var referencing BACKEND_URL key, got %v", envMap)
+	}
+}
+
+func TestReconcile_KafkaBackend(t *testing.T) {
+	scheme := newScheme()
+
+	cluster := &ojsv1alpha1.OJSCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "kafka-cluster", Namespace: "default"},
+		Spec: ojsv1alpha1.OJSClusterSpec{
+			Backend:  ojsv1alpha1.BackendSpec{Type: "kafka", URL: "kafka:9092"},
+			Replicas: int32Ptr(1),
+		},
+	}
+
+	client := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(cluster).
+		WithStatusSubresource(cluster).
+		Build()
+
+	r := &OJSClusterReconciler{Client: client, Scheme: scheme}
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "kafka-cluster", Namespace: "default"}}
+
+	if _, err := r.Reconcile(context.Background(), req); err != nil {
+		t.Fatalf("first reconcile failed: %v", err)
+	}
+	if _, err := r.Reconcile(context.Background(), req); err != nil {
+		t.Fatalf("second reconcile failed: %v", err)
+	}
+
+	cm := &corev1.ConfigMap{}
+	if err := client.Get(context.Background(), types.NamespacedName{Name: "kafka-cluster-config", Namespace: "default"}, cm); err != nil {
+		t.Fatalf("expected ConfigMap: %v", err)
+	}
+	if cm.Data["BACKEND_TYPE"] != "kafka" {
+		t.Errorf("expected backend type kafka, got %s", cm.Data["BACKEND_TYPE"])
+	}
+
+	dep := &appsv1.Deployment{}
+	if err := client.Get(context.Background(), types.NamespacedName{Name: "kafka-cluster-server", Namespace: "default"}, dep); err != nil {
+		t.Fatalf("expected Deployment: %v", err)
+	}
+	found := false
+	for _, env := range dep.Spec.Template.Spec.Containers[0].Env {
+		if env.Name == "KAFKA_BROKERS" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected KAFKA_BROKERS env var in deployment")
+	}
+}
+
+func TestReconcile_SQSBackend(t *testing.T) {
+	scheme := newScheme()
+
+	cluster := &ojsv1alpha1.OJSCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "sqs-cluster", Namespace: "default"},
+		Spec: ojsv1alpha1.OJSClusterSpec{
+			Backend:  ojsv1alpha1.BackendSpec{Type: "sqs", URL: "https://sqs.us-east-1.amazonaws.com/123456789/ojs"},
+			Replicas: int32Ptr(1),
+		},
+	}
+
+	client := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(cluster).
+		WithStatusSubresource(cluster).
+		Build()
+
+	r := &OJSClusterReconciler{Client: client, Scheme: scheme}
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "sqs-cluster", Namespace: "default"}}
+
+	if _, err := r.Reconcile(context.Background(), req); err != nil {
+		t.Fatalf("first reconcile failed: %v", err)
+	}
+	if _, err := r.Reconcile(context.Background(), req); err != nil {
+		t.Fatalf("second reconcile failed: %v", err)
+	}
+
+	cm := &corev1.ConfigMap{}
+	if err := client.Get(context.Background(), types.NamespacedName{Name: "sqs-cluster-config", Namespace: "default"}, cm); err != nil {
+		t.Fatalf("expected ConfigMap: %v", err)
+	}
+	if cm.Data["BACKEND_TYPE"] != "sqs" {
+		t.Errorf("expected backend type sqs, got %s", cm.Data["BACKEND_TYPE"])
+	}
+
+	dep := &appsv1.Deployment{}
+	if err := client.Get(context.Background(), types.NamespacedName{Name: "sqs-cluster-server", Namespace: "default"}, dep); err != nil {
+		t.Fatalf("expected Deployment: %v", err)
+	}
+	found := false
+	for _, env := range dep.Spec.Template.Spec.Containers[0].Env {
+		if env.Name == "SQS_QUEUE_URL" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected SQS_QUEUE_URL env var in deployment")
+	}
+}
+
+func TestReconcile_ScalingReplicasChange(t *testing.T) {
+	scheme := newScheme()
+
+	cluster := &ojsv1alpha1.OJSCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "scale-cluster", Namespace: "default"},
+		Spec: ojsv1alpha1.OJSClusterSpec{
+			Backend:  ojsv1alpha1.BackendSpec{Type: "redis", URL: "redis://localhost:6379"},
+			Replicas: int32Ptr(2),
+		},
+	}
+
+	client := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(cluster).
+		WithStatusSubresource(cluster).
+		Build()
+
+	r := &OJSClusterReconciler{Client: client, Scheme: scheme}
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "scale-cluster", Namespace: "default"}}
+
+	// Create resources
+	if _, err := r.Reconcile(context.Background(), req); err != nil {
+		t.Fatalf("first reconcile failed: %v", err)
+	}
+	if _, err := r.Reconcile(context.Background(), req); err != nil {
+		t.Fatalf("second reconcile failed: %v", err)
+	}
+
+	dep := &appsv1.Deployment{}
+	if err := client.Get(context.Background(), types.NamespacedName{Name: "scale-cluster-server", Namespace: "default"}, dep); err != nil {
+		t.Fatalf("expected Deployment: %v", err)
+	}
+	if *dep.Spec.Replicas != 2 {
+		t.Errorf("expected 2 replicas, got %d", *dep.Spec.Replicas)
+	}
+
+	// Update replicas to 5
+	updated := &ojsv1alpha1.OJSCluster{}
+	if err := client.Get(context.Background(), req.NamespacedName, updated); err != nil {
+		t.Fatalf("failed to get cluster: %v", err)
+	}
+	updated.Spec.Replicas = int32Ptr(5)
+	if err := client.Update(context.Background(), updated); err != nil {
+		t.Fatalf("failed to update cluster: %v", err)
+	}
+
+	// Reconcile again
+	if _, err := r.Reconcile(context.Background(), req); err != nil {
+		t.Fatalf("reconcile after scale failed: %v", err)
+	}
+
+	if err := client.Get(context.Background(), types.NamespacedName{Name: "scale-cluster-server", Namespace: "default"}, dep); err != nil {
+		t.Fatalf("expected Deployment after scale: %v", err)
+	}
+	if *dep.Spec.Replicas != 5 {
+		t.Errorf("expected 5 replicas after scale, got %d", *dep.Spec.Replicas)
+	}
+}
+
+func TestReconcile_SecretRefBackendURL(t *testing.T) {
+	scheme := newScheme()
+
+	cluster := &ojsv1alpha1.OJSCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "secret-cluster", Namespace: "default"},
+		Spec: ojsv1alpha1.OJSClusterSpec{
+			Backend: ojsv1alpha1.BackendSpec{
+				Type: "redis",
+				URLSecretRef: &ojsv1alpha1.SecretKeyRef{
+					Name: "redis-secret",
+					Key:  "url",
+				},
+			},
+			Replicas: int32Ptr(1),
+		},
+	}
+
+	client := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(cluster).
+		WithStatusSubresource(cluster).
+		Build()
+
+	r := &OJSClusterReconciler{Client: client, Scheme: scheme}
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "secret-cluster", Namespace: "default"}}
+
+	if _, err := r.Reconcile(context.Background(), req); err != nil {
+		t.Fatalf("first reconcile failed: %v", err)
+	}
+	if _, err := r.Reconcile(context.Background(), req); err != nil {
+		t.Fatalf("second reconcile failed: %v", err)
+	}
+
+	dep := &appsv1.Deployment{}
+	if err := client.Get(context.Background(), types.NamespacedName{Name: "secret-cluster-server", Namespace: "default"}, dep); err != nil {
+		t.Fatalf("expected Deployment: %v", err)
+	}
+
+	found := false
+	for _, env := range dep.Spec.Template.Spec.Containers[0].Env {
+		if env.Name == "REDIS_URL" && env.ValueFrom != nil && env.ValueFrom.SecretKeyRef != nil {
+			if env.ValueFrom.SecretKeyRef.Name == "redis-secret" && env.ValueFrom.SecretKeyRef.Key == "url" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Error("expected REDIS_URL env var sourced from secret redis-secret/url")
 	}
 }
 
