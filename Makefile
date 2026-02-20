@@ -1,6 +1,9 @@
 IMG ?= ghcr.io/openjobspec/ojs-k8s-operator:latest
+HELM_CHART_DIR = charts/ojs-operator
 
-.PHONY: build test lint run docker-build docker-push install uninstall deploy undeploy
+.PHONY: build test lint run docker-build docker-push install uninstall deploy undeploy generate helm-lint helm-template helm-package helm-install helm-uninstall
+
+##@ Build
 
 build:
 	go build -o bin/manager ./cmd/manager
@@ -14,16 +17,22 @@ lint:
 run: build
 	./bin/manager
 
+##@ Docker
+
 docker-build:
 	docker build -t $(IMG) .
 
 docker-push:
 	docker push $(IMG)
 
+##@ Deployment
+
 install:
 	kubectl apply -f config/crd/ojscluster-crd.yaml
+	kubectl apply -f config/crd/ojsworker-crd.yaml
 
 uninstall:
+	kubectl delete -f config/crd/ojsworker-crd.yaml
 	kubectl delete -f config/crd/ojscluster-crd.yaml
 
 deploy: install
@@ -37,4 +46,27 @@ undeploy:
 	kubectl delete -f config/rbac/role_binding.yaml
 	kubectl delete -f config/rbac/role.yaml
 	kubectl delete -f config/rbac/service_account.yaml
+	kubectl delete -f config/crd/ojsworker-crd.yaml
 	kubectl delete -f config/crd/ojscluster-crd.yaml
+
+##@ Helm
+
+helm-lint:
+	helm lint $(HELM_CHART_DIR)
+
+helm-template:
+	helm template test $(HELM_CHART_DIR) --values $(HELM_CHART_DIR)/values.yaml
+
+helm-package:
+	helm package $(HELM_CHART_DIR)
+
+helm-install:
+	helm install ojs-operator $(HELM_CHART_DIR) --create-namespace --namespace ojs-system
+
+helm-uninstall:
+	helm uninstall ojs-operator --namespace ojs-system
+
+##@ Code Generation
+
+generate:
+	go generate ./...
