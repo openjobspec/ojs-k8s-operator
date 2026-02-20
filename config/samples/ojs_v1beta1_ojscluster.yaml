@@ -1,0 +1,39 @@
+# Example OJSCluster resource (beta)
+apiVersion: ojs.openjobspec.dev/v1beta1
+kind: OJSCluster
+metadata:
+  name: production
+  namespace: ojs-system
+spec:
+  # Backend configuration
+  backend:
+    type: postgres
+    urlSecretRef:
+      name: ojs-postgres-credentials
+      key: url
+
+  # Server configuration
+  replicas: 3
+  image: ghcr.io/openjobspec/ojs-backend-postgres:latest
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+    limits:
+      cpu: "2"
+      memory: "2Gi"
+
+  # Worker auto-scaling
+  autoScaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 20
+    targetQueueDepth: 1000
+    scaleUpCooldown: "30s"
+    scaleDownCooldown: "300s"
+
+  # Monitoring
+  monitoring:
+    enabled: true
+    serviceMonitor: true
+    grafanaDashboard: true

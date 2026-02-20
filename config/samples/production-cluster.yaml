@@ -1,0 +1,47 @@
+# Production-ready OJSCluster with HA, resource limits, monitoring, and auto-scaling
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ojs-system
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: redis-credentials
+  namespace: ojs-system
+type: Opaque
+stringData:
+  url: "redis://redis.ojs-system.svc.cluster.local:6379"
+---
+apiVersion: ojs.openjobspec.dev/v1alpha1
+kind: OJSCluster
+metadata:
+  name: ojs-production
+  namespace: ojs-system
+spec:
+  backend:
+    type: redis
+    urlSecretRef:
+      name: redis-credentials
+      key: url
+  replicas: 3
+  image: ghcr.io/openjobspec/ojs-backend-redis:v0.1.0
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "256Mi"
+    limits:
+      cpu: "1"
+      memory: "512Mi"
+  autoScaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetQueueDepth: 100
+    targetJobsPerWorker: 5
+    scaleUpCooldown: "60s"
+    scaleDownCooldown: "300s"
+  monitoring:
+    enabled: true
+    serviceMonitor: true
+    grafanaDashboard: true

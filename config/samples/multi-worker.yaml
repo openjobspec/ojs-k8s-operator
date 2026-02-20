@@ -1,0 +1,110 @@
+# Multi-worker deployment: OJSCluster with multiple specialized OJSWorker definitions
+---
+apiVersion: ojs.openjobspec.dev/v1alpha1
+kind: OJSCluster
+metadata:
+  name: ojs-multi
+  namespace: default
+spec:
+  backend:
+    type: redis
+    embedded: true
+  replicas: 2
+  monitoring:
+    enabled: true
+---
+# Email worker — low concurrency, handles email-related jobs
+apiVersion: ojs.openjobspec.dev/v1alpha1
+kind: OJSWorker
+metadata:
+  name: email-worker
+  namespace: default
+spec:
+  clusterRef: ojs-multi
+  jobTypes:
+    - email.send
+    - email.digest
+    - email.welcome
+  queues:
+    - emails
+    - notifications
+  concurrency: 10
+  replicas: 2
+  image: myapp/email-worker:latest
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+  autoScaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 10
+    targetJobsPerWorker: 5
+    scaleDownDelay: "5m"
+    pollingInterval: "30s"
+  gracefulShutdown:
+    timeoutSeconds: 60
+    drainBeforeShutdown: true
+---
+# Data processing worker — high concurrency, handles compute-heavy jobs
+apiVersion: ojs.openjobspec.dev/v1alpha1
+kind: OJSWorker
+metadata:
+  name: data-processor
+  namespace: default
+spec:
+  clusterRef: ojs-multi
+  jobTypes:
+    - data.transform
+    - data.aggregate
+    - report.generate
+  queues:
+    - data-processing
+  concurrency: 50
+  replicas: 3
+  image: myapp/data-worker:latest
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+    limits:
+      cpu: "2"
+      memory: "2Gi"
+  autoScaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 20
+    targetJobsPerWorker: 10
+    pollingInterval: "15s"
+  gracefulShutdown:
+    timeoutSeconds: 120
+    drainBeforeShutdown: true
+---
+# Webhook worker — simple worker with no auto-scaling
+apiVersion: ojs.openjobspec.dev/v1alpha1
+kind: OJSWorker
+metadata:
+  name: webhook-worker
+  namespace: default
+spec:
+  clusterRef: ojs-multi
+  jobTypes:
+    - webhook.deliver
+  queues:
+    - webhooks
+  concurrency: 20
+  replicas: 2
+  image: myapp/webhook-worker:latest
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "64Mi"
+    limits:
+      cpu: "250m"
+      memory: "128Mi"
+  gracefulShutdown:
+    timeoutSeconds: 30
+    drainBeforeShutdown: true

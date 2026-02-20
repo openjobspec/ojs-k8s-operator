@@ -1,0 +1,10 @@
+# Minimal OJSCluster — simplest possible deployment
+apiVersion: ojs.openjobspec.dev/v1alpha1
+kind: OJSCluster
+metadata:
+  name: ojs-minimal
+spec:
+  backend:
+    type: redis
+    embedded: true
+  replicas: 1

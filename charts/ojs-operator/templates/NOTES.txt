@@ -1,0 +1,29 @@
+The OJS Kubernetes Operator has been installed.
+
+1. Verify the operator is running:
+
+  kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "ojs-operator.name" . }}
+
+2. Create a minimal OJS cluster:
+
+  cat <<EOF | kubectl apply -f -
+  apiVersion: ojs.openjobspec.dev/v1alpha1
+  kind: OJSCluster
+  metadata:
+    name: my-ojs
+  spec:
+    backend:
+      type: redis
+      url: "redis://redis:6379"
+    replicas: 2
+  EOF
+
+3. Check cluster status:
+
+  kubectl get ojsclusters
+
+4. View operator logs:
+
+  kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "ojs-operator.name" . }} -f
+
+For more information, visit: https://github.com/openjobspec/ojs-k8s-operator

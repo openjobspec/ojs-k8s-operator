@@ -1,0 +1,19 @@
+apiVersion: v2
+name: ojs-operator
+description: Kubernetes operator for Open Job Spec (OJS) — manages OJSCluster and OJSWorker resources
+type: application
+version: 0.2.0
+appVersion: "0.2.0"
+kubeVersion: ">=1.26.0-0"
+home: https://github.com/openjobspec/ojs-k8s-operator
+sources:
+  - https://github.com/openjobspec/ojs-k8s-operator
+maintainers:
+  - name: openjobspec
+    url: https://github.com/openjobspec
+keywords:
+  - ojs
+  - openjobspec
+  - job-processing
+  - background-jobs
+  - operator
