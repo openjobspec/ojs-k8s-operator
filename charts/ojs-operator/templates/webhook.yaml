@@ -1,0 +1,81 @@
+{{- if .Values.webhook.enabled }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ include "ojs-operator.fullname" . }}-validating-webhook
+  labels:
+    {{- include "ojs-operator.labels" . | nindent 4 }}
+  {{- if .Values.webhook.certManager.enabled }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "ojs-operator.fullname" . }}-serving-cert
+  {{- end }}
+webhooks:
+  - name: vojscluster.ojs.openjobspec.dev
+    admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: {{ include "ojs-operator.fullname" . }}-webhook-service
+        namespace: {{ .Release.Namespace }}
+        path: /validate-ojs-openjobspec-dev-v1alpha1-ojscluster
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    rules:
+      - apiGroups:
+          - ojs.openjobspec.dev
+        apiVersions:
+          - v1alpha1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - ojsclusters
+    sideEffects: None
+  - name: vojsworker.ojs.openjobspec.dev
+    admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: {{ include "ojs-operator.fullname" . }}-webhook-service
+        namespace: {{ .Release.Namespace }}
+        path: /validate-ojs-openjobspec-dev-v1alpha1-ojsworker
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    rules:
+      - apiGroups:
+          - ojs.openjobspec.dev
+        apiVersions:
+          - v1alpha1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - ojsworkers
+    sideEffects: None
+---
+{{- if .Values.webhook.certManager.enabled }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "ojs-operator.fullname" . }}-serving-cert
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ojs-operator.labels" . | nindent 4 }}
+spec:
+  dnsNames:
+    - {{ include "ojs-operator.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc
+    - {{ include "ojs-operator.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc.cluster.local
+  issuerRef:
+    kind: {{ .Values.webhook.certManager.issuerRef.kind }}
+    name: {{ .Values.webhook.certManager.issuerRef.name }}
+  secretName: {{ include "ojs-operator.fullname" . }}-webhook-server-cert
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "ojs-operator.fullname" . }}-selfsigned-issuer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ojs-operator.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+{{- end }}
+{{- end }}

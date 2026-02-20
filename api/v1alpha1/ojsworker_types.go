@@ -8,16 +8,22 @@ import (
 // OJSWorkerSpec defines the desired state of an OJS worker deployment.
 type OJSWorkerSpec struct {
 	// ClusterRef references the OJSCluster this worker connects to.
+	// +kubebuilder:validation:MinLength=1
 	ClusterRef string `json:"clusterRef"`
 	// JobTypes lists the job types this worker handles.
+	// +kubebuilder:validation:MinItems=1
 	JobTypes []string `json:"jobTypes"`
 	// Queues lists the queues this worker processes (default: ["default"]).
 	Queues []string `json:"queues,omitempty"`
 	// Concurrency is the number of concurrent jobs per worker pod.
+	// +kubebuilder:validation:Minimum=0
 	Concurrency int32 `json:"concurrency,omitempty"`
 	// Replicas is the desired number of worker pods.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:default=1
 	Replicas *int32 `json:"replicas,omitempty"`
 	// Image for the worker container.
+	// +kubebuilder:validation:MinLength=1
 	Image string `json:"image"`
 	// Command override for the worker container.
 	Command []string `json:"command,omitempty"`
@@ -36,30 +42,38 @@ type WorkerAutoScalingSpec struct {
 	// Enabled enables auto-scaling.
 	Enabled bool `json:"enabled"`
 	// MinReplicas is the minimum number of worker pods.
+	// +kubebuilder:validation:Minimum=1
 	MinReplicas int32 `json:"minReplicas"`
 	// MaxReplicas is the maximum number of worker pods.
+	// +kubebuilder:validation:Minimum=1
 	MaxReplicas int32 `json:"maxReplicas"`
 	// TargetJobsPerWorker is the desired number of pending jobs per worker replica.
+	// +kubebuilder:validation:Minimum=1
 	TargetJobsPerWorker int64 `json:"targetJobsPerWorker"`
 	// ScaleUpThreshold triggers scale-up when queue depth exceeds this value.
 	ScaleUpThreshold int64 `json:"scaleUpThreshold,omitempty"`
 	// ScaleDownDelay prevents scale-down for this duration after the last scale-up (e.g., "5m").
 	ScaleDownDelay string `json:"scaleDownDelay,omitempty"`
 	// PollingInterval is how often to check queue metrics (e.g., "30s").
+	// +kubebuilder:default="30s"
 	PollingInterval string `json:"pollingInterval,omitempty"`
 }
 
 // GracefulShutdownSpec configures how workers drain during shutdown.
 type GracefulShutdownSpec struct {
 	// TimeoutSeconds is the maximum time to wait for active jobs to complete.
+	// +kubebuilder:default=30
+	// +kubebuilder:validation:Minimum=0
 	TimeoutSeconds int32 `json:"timeoutSeconds,omitempty"`
 	// DrainBeforeShutdown waits for active jobs to complete before terminating.
+	// +kubebuilder:default=false
 	DrainBeforeShutdown bool `json:"drainBeforeShutdown,omitempty"`
 }
 
 // OJSWorkerStatus defines the observed state of an OJS worker deployment.
 type OJSWorkerStatus struct {
 	// Phase of the worker: Pending, Running, Scaling, Draining, Error.
+	// +kubebuilder:validation:Enum=Pending;Running;Scaling;Draining;Error
 	Phase string `json:"phase"`
 	// Replicas is the total number of worker pods.
 	Replicas int32 `json:"replicas"`

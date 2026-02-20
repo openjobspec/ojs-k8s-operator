@@ -67,6 +67,16 @@ serviceMonitor:
   rbac:
     enabled: true
 
+# Webhooks
+webhook:
+  enabled: false
+  failurePolicy: Fail
+  certManager:
+    enabled: false
+    issuerRef:
+      kind: Issuer
+      name: ""  # Auto-populated with self-signed issuer if empty
+
 # Node selector, tolerations, affinity
 nodeSelector: {}
 tolerations: []

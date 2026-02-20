@@ -1,0 +1,233 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: ojsworkers.ojs.openjobspec.dev
+  annotations:
+    controller-gen.kubebuilder.io/version: (devel)
+spec:
+  group: ojs.openjobspec.dev
+  names:
+    kind: OJSWorker
+    listKind: OJSWorkerList
+    plural: ojsworkers
+    singular: ojsworker
+    shortNames:
+      - ojsw
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - name: Cluster
+          type: string
+          jsonPath: .spec.clusterRef
+        - name: Replicas
+          type: integer
+          jsonPath: .status.replicas
+        - name: Ready
+          type: integer
+          jsonPath: .status.readyReplicas
+        - name: Queue Depth
+          type: integer
+          jsonPath: .status.queueDepth
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      subresources:
+        status: {}
+        scale:
+          specReplicasPath: .spec.replicas
+          statusReplicasPath: .status.replicas
+      schema:
+        openAPIV3Schema:
+          description: OJSWorker is the Schema for the ojsworkers API.
+          type: object
+          required:
+            - spec
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: OJSWorkerSpec defines the desired state of an OJS worker deployment.
+              type: object
+              required:
+                - clusterRef
+                - jobTypes
+                - image
+              properties:
+                clusterRef:
+                  description: References the OJSCluster this worker connects to.
+                  type: string
+                jobTypes:
+                  description: Job types this worker handles.
+                  type: array
+                  items:
+                    type: string
+                  minItems: 1
+                queues:
+                  description: 'Queues this worker processes (default: ["default"]).'
+                  type: array
+                  items:
+                    type: string
+                concurrency:
+                  description: Number of concurrent jobs per worker pod.
+                  type: integer
+                  format: int32
+                  minimum: 1
+                replicas:
+                  description: Desired number of worker pods.
+                  type: integer
+                  format: int32
+                  default: 1
+                  minimum: 0
+                image:
+                  description: Container image for the worker.
+                  type: string
+                command:
+                  description: Command override for the worker container.
+                  type: array
+                  items:
+                    type: string
+                env:
+                  description: Additional environment variables for worker pods.
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - name
+                    properties:
+                      name:
+                        type: string
+                      value:
+                        type: string
+                      valueFrom:
+                        type: object
+                        properties:
+                          secretKeyRef:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                              key:
+                                type: string
+                          configMapKeyRef:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                              key:
+                                type: string
+                resources:
+                  description: Resource requirements for worker pods.
+                  type: object
+                  properties:
+                    limits:
+                      type: object
+                      additionalProperties:
+                        anyOf:
+                          - type: integer
+                          - type: string
+                        x-kubernetes-int-or-string: true
+                    requests:
+                      type: object
+                      additionalProperties:
+                        anyOf:
+                          - type: integer
+                          - type: string
+                        x-kubernetes-int-or-string: true
+                autoScaling:
+                  description: Queue-depth-based auto-scaling configuration.
+                  type: object
+                  required:
+                    - enabled
+                    - minReplicas
+                    - maxReplicas
+                    - targetJobsPerWorker
+                  properties:
+                    enabled:
+                      type: boolean
+                    minReplicas:
+                      type: integer
+                      format: int32
+                      minimum: 1
+                    maxReplicas:
+                      type: integer
+                      format: int32
+                    targetJobsPerWorker:
+                      type: integer
+                      format: int64
+                    scaleUpThreshold:
+                      type: integer
+                      format: int64
+                    scaleDownDelay:
+                      type: string
+                    pollingInterval:
+                      type: string
+                gracefulShutdown:
+                  description: Graceful shutdown behavior configuration.
+                  type: object
+                  properties:
+                    timeoutSeconds:
+                      type: integer
+                      format: int32
+                    drainBeforeShutdown:
+                      type: boolean
+            status:
+              description: OJSWorkerStatus defines the observed state of an OJS worker deployment.
+              type: object
+              properties:
+                phase:
+                  description: 'Phase of the worker: Pending, Running, Scaling, Draining, Error.'
+                  type: string
+                replicas:
+                  type: integer
+                  format: int32
+                readyReplicas:
+                  type: integer
+                  format: int32
+                activeJobs:
+                  type: integer
+                  format: int64
+                queueDepth:
+                  type: integer
+                  format: int64
+                lastScaleTime:
+                  type: string
+                  format: date-time
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - lastTransitionTime
+                      - reason
+                      - message
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string

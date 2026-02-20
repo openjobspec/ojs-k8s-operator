@@ -10,8 +10,11 @@ type OJSClusterSpec struct {
 	// Backend configuration.
 	Backend BackendSpec `json:"backend"`
 	// Server replicas (default 2).
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:default=2
 	Replicas *int32 `json:"replicas,omitempty"`
 	// Image to use for the OJS server.
+	// +kubebuilder:default="ghcr.io/openjobspec/ojs-server:latest"
 	Image string `json:"image,omitempty"`
 	// Worker auto-scaling configuration.
 	AutoScaling *AutoScalingSpec `json:"autoScaling,omitempty"`
@@ -23,13 +26,15 @@ type OJSClusterSpec struct {
 
 // BackendSpec defines the backend storage configuration.
 type BackendSpec struct {
-	// Type of backend: "redis", "postgres", or "nats".
+	// Type of backend: "redis", "postgres", "nats", "kafka", "sqs", or "lite".
+	// +kubebuilder:validation:Enum=redis;postgres;nats;kafka;sqs;lite
 	Type string `json:"type"`
 	// Connection URL for the backend.
 	URL string `json:"url,omitempty"`
 	// Reference to a Secret key containing the connection URL.
 	URLSecretRef *SecretKeyRef `json:"urlSecretRef,omitempty"`
 	// Embedded enables auto-deployment of the backend (e.g., Redis).
+	// +kubebuilder:default=false
 	Embedded bool `json:"embedded,omitempty"`
 }
 
@@ -46,10 +51,13 @@ type AutoScalingSpec struct {
 	// Enabled enables auto-scaling.
 	Enabled bool `json:"enabled"`
 	// MinReplicas is the lower bound for auto-scaling.
+	// +kubebuilder:validation:Minimum=1
 	MinReplicas int32 `json:"minReplicas"`
 	// MaxReplicas is the upper bound for auto-scaling.
+	// +kubebuilder:validation:Minimum=1
 	MaxReplicas int32 `json:"maxReplicas"`
 	// TargetQueueDepth is the desired queue depth per replica.
+	// +kubebuilder:validation:Minimum=1
 	TargetQueueDepth int64 `json:"targetQueueDepth"`
 	// TargetJobsPerWorker is the desired active jobs per worker.
 	TargetJobsPerWorker int64 `json:"targetJobsPerWorker,omitempty"`
@@ -72,6 +80,7 @@ type MonitoringSpec struct {
 // OJSClusterStatus defines the observed state of an OJS cluster.
 type OJSClusterStatus struct {
 	// Phase of the cluster: Pending, Running, Scaling, Error.
+	// +kubebuilder:validation:Enum=Pending;Running;Scaling;Error
 	Phase string `json:"phase"`
 	// Replicas is the total number of server pods.
 	Replicas int32 `json:"replicas"`
