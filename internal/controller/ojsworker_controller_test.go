@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"testing"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
@@ -545,6 +546,160 @@ func TestWorkerReconcile_Labels(t *testing.T) {
 		if labels[k] != v {
 			t.Errorf("label %q = %q, want %q", k, labels[k], v)
 		}
+	}
+}
+
+func TestWorkerReconcile_AutoScalingRequeues(t *testing.T) {
+	scheme := newWorkerScheme()
+
+	cluster := &ojsv1alpha1.OJSCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "requeue-cluster", Namespace: "default"},
+		Spec: ojsv1alpha1.OJSClusterSpec{
+			Backend: ojsv1alpha1.BackendSpec{Type: "redis", URL: "redis://localhost:6379"},
+		},
+	}
+	worker := &ojsv1alpha1.OJSWorker{
+		ObjectMeta: metav1.ObjectMeta{Name: "requeue-worker", Namespace: "default"},
+		Spec: ojsv1alpha1.OJSWorkerSpec{
+			ClusterRef: "requeue-cluster",
+			JobTypes:   []string{"job.type"},
+			Image:      "worker:latest",
+			AutoScaling: &ojsv1alpha1.WorkerAutoScalingSpec{
+				Enabled:         true,
+				MinReplicas:     1,
+				MaxReplicas:     5,
+				PollingInterval: "45s",
+			},
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(cluster, worker).
+		WithStatusSubresource(cluster, worker).
+		Build()
+
+	r := &OJSWorkerReconciler{Client: cl, Scheme: scheme}
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "requeue-worker", Namespace: "default"}}
+
+	// First reconcile adds finalizer
+	if _, err := r.Reconcile(context.Background(), req); err != nil {
+		t.Fatalf("first reconcile failed: %v", err)
+	}
+	// Second reconcile creates resources and returns requeue
+	result, err := r.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Fatalf("second reconcile failed: %v", err)
+	}
+	if result.RequeueAfter != 45*time.Second {
+		t.Errorf("expected RequeueAfter=45s, got %v", result.RequeueAfter)
+	}
+}
+
+func TestWorkerReconcile_ClusterNotFound(t *testing.T) {
+	scheme := newWorkerScheme()
+
+	worker := &ojsv1alpha1.OJSWorker{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "orphan-worker",
+			Namespace:  "default",
+			Finalizers: []string{workerFinalizer},
+		},
+		Spec: ojsv1alpha1.OJSWorkerSpec{
+			ClusterRef: "missing-cluster",
+			JobTypes:   []string{"job.type"},
+			Image:      "worker:latest",
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(worker).
+		WithStatusSubresource(worker).
+		Build()
+
+	r := &OJSWorkerReconciler{Client: cl, Scheme: scheme}
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "orphan-worker", Namespace: "default"}}
+
+	result, err := r.Reconcile(context.Background(), req)
+	if err != nil {
+		t.Fatalf("reconcile failed: %v", err)
+	}
+	if result.RequeueAfter == 0 {
+		t.Error("expected requeue when cluster not found")
+	}
+
+	updated := &ojsv1alpha1.OJSWorker{}
+	if err := cl.Get(context.Background(), req.NamespacedName, updated); err != nil {
+		t.Fatalf("failed to get worker: %v", err)
+	}
+	if updated.Status.Phase != "Error" {
+		t.Errorf("expected phase Error, got %s", updated.Status.Phase)
+	}
+}
+
+func TestWorkerReconcile_ScalingReplicasChange(t *testing.T) {
+	scheme := newWorkerScheme()
+
+	cluster := &ojsv1alpha1.OJSCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "scale-cluster", Namespace: "default"},
+		Spec: ojsv1alpha1.OJSClusterSpec{
+			Backend: ojsv1alpha1.BackendSpec{Type: "redis", URL: "redis://localhost:6379"},
+		},
+	}
+	worker := &ojsv1alpha1.OJSWorker{
+		ObjectMeta: metav1.ObjectMeta{Name: "scale-worker", Namespace: "default"},
+		Spec: ojsv1alpha1.OJSWorkerSpec{
+			ClusterRef: "scale-cluster",
+			JobTypes:   []string{"job.type"},
+			Image:      "worker:latest",
+			Replicas:   int32Ptr(2),
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(cluster, worker).
+		WithStatusSubresource(cluster, worker).
+		Build()
+
+	r := &OJSWorkerReconciler{Client: cl, Scheme: scheme}
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "scale-worker", Namespace: "default"}}
+
+	if _, err := r.Reconcile(context.Background(), req); err != nil {
+		t.Fatalf("first reconcile failed: %v", err)
+	}
+	if _, err := r.Reconcile(context.Background(), req); err != nil {
+		t.Fatalf("second reconcile failed: %v", err)
+	}
+
+	dep := &appsv1.Deployment{}
+	if err := cl.Get(context.Background(), types.NamespacedName{Name: "scale-worker", Namespace: "default"}, dep); err != nil {
+		t.Fatalf("expected Deployment: %v", err)
+	}
+	if *dep.Spec.Replicas != 2 {
+		t.Errorf("expected 2 replicas, got %d", *dep.Spec.Replicas)
+	}
+
+	// Scale up to 5
+	updated := &ojsv1alpha1.OJSWorker{}
+	if err := cl.Get(context.Background(), req.NamespacedName, updated); err != nil {
+		t.Fatalf("failed to get worker: %v", err)
+	}
+	updated.Spec.Replicas = int32Ptr(5)
+	if err := cl.Update(context.Background(), updated); err != nil {
+		t.Fatalf("failed to update worker: %v", err)
+	}
+
+	if _, err := r.Reconcile(context.Background(), req); err != nil {
+		t.Fatalf("reconcile after scale failed: %v", err)
+	}
+
+	if err := cl.Get(context.Background(), types.NamespacedName{Name: "scale-worker", Namespace: "default"}, dep); err != nil {
+		t.Fatalf("expected Deployment after scale: %v", err)
+	}
+	if *dep.Spec.Replicas != 5 {
+		t.Errorf("expected 5 replicas after scale, got %d", *dep.Spec.Replicas)
 	}
 }
 
