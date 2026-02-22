@@ -179,3 +179,4 @@ ojs-k8s-operator/
 ├── charts/ojs-operator/   # Helm chart
 └── docs/                  # Documentation
 ```
+
