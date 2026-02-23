@@ -1,6 +1,6 @@
 module github.com/openjobspec/ojs-k8s-operator
 
-go 1.24.4
+go 1.24
 
 require (
 	k8s.io/api v0.32.3
