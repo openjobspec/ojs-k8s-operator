@@ -405,3 +405,4 @@ kubectl patch ojscluster <name> -p '{"metadata":{"finalizers":null}}' --type=mer
 ## License
 
 Apache License 2.0 — see [LICENSE](../LICENSE) for details.
+
