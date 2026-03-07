@@ -202,3 +202,4 @@ kubectl delete ojscluster my-ojs
 - [Configuration Reference](configuration.md) — All CRD fields documented
 - [Architecture](architecture.md) — How the operator works internally
 - [Troubleshooting](troubleshooting.md) — Common issues and solutions
+
