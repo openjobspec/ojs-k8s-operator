@@ -76,3 +76,4 @@ spec:
   gracefulShutdown:
     timeoutSeconds: 120
     drainBeforeShutdown: true
+
