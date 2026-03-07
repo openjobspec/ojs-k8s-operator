@@ -314,4 +314,3 @@ func TestValidateOJSWorker_MultipleJobTypes(t *testing.T) {
 		t.Errorf("multiple job types should be valid, got: %v", err)
 	}
 }
-
