@@ -8,3 +8,4 @@ spec:
     type: redis
     embedded: true
   replicas: 1
+
