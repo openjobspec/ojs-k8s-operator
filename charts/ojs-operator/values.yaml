@@ -87,3 +87,4 @@ commonLabels: {}
 
 # Additional annotations for the operator deployment
 podAnnotations: {}
+
