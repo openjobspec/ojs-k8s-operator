@@ -6,8 +6,10 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -15,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -48,6 +51,7 @@ type OJSClusterReconciler struct {
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=services;configmaps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=policy,resources=poddisruptionbudgets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile handles create/update/delete of OJSCluster resources.
@@ -120,6 +124,12 @@ func (r *OJSClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	// Reconcile Service
 	if err := r.reconcileService(ctx, cluster); err != nil {
 		logger.Error(err, "failed to reconcile Service")
+		return ctrl.Result{}, err
+	}
+
+	// Reconcile PodDisruptionBudget for HA
+	if err := r.reconcilePDB(ctx, cluster); err != nil {
+		logger.Error(err, "failed to reconcile PodDisruptionBudget")
 		return ctrl.Result{}, err
 	}
 
@@ -225,14 +235,33 @@ func (r *OJSClusterReconciler) reconcileDeployment(ctx context.Context, cluster 
 			})
 		}
 
+		// Build container security context
+		containerSC := &corev1.SecurityContext{
+			AllowPrivilegeEscalation: ptr.To(false),
+			Capabilities: &corev1.Capabilities{
+				Drop: []corev1.Capability{"ALL"},
+			},
+		}
+		if cluster.Spec.SecurityContext != nil {
+			if cluster.Spec.SecurityContext.ReadOnlyRootFilesystem != nil {
+				containerSC.ReadOnlyRootFilesystem = cluster.Spec.SecurityContext.ReadOnlyRootFilesystem
+			} else {
+				containerSC.ReadOnlyRootFilesystem = ptr.To(true)
+			}
+		} else {
+			containerSC.ReadOnlyRootFilesystem = ptr.To(true)
+		}
+
 		container := corev1.Container{
-			Name:  "ojs-server",
-			Image: image,
+			Name:            "ojs-server",
+			Image:           image,
+			ImagePullPolicy: corev1.PullIfNotPresent,
 			Ports: []corev1.ContainerPort{
 				{Name: "http", ContainerPort: int32(defaultPort), Protocol: corev1.ProtocolTCP},
 				{Name: "metrics", ContainerPort: int32(metricsPort), Protocol: corev1.ProtocolTCP},
 			},
-			Env: envVars,
+			Env:             envVars,
+			SecurityContext: containerSC,
 			LivenessProbe: &corev1.Probe{
 				ProbeHandler: corev1.ProbeHandler{
 					HTTPGet: &corev1.HTTPGetAction{
@@ -242,6 +271,8 @@ func (r *OJSClusterReconciler) reconcileDeployment(ctx context.Context, cluster 
 				},
 				InitialDelaySeconds: 10,
 				PeriodSeconds:       10,
+				TimeoutSeconds:      3,
+				FailureThreshold:    3,
 			},
 			ReadinessProbe: &corev1.Probe{
 				ProbeHandler: corev1.ProbeHandler{
@@ -252,18 +283,84 @@ func (r *OJSClusterReconciler) reconcileDeployment(ctx context.Context, cluster 
 				},
 				InitialDelaySeconds: 5,
 				PeriodSeconds:       5,
+				TimeoutSeconds:      2,
+				FailureThreshold:    3,
+			},
+			StartupProbe: &corev1.Probe{
+				ProbeHandler: corev1.ProbeHandler{
+					HTTPGet: &corev1.HTTPGetAction{
+						Path: "/healthz",
+						Port: intstr.FromInt(defaultPort),
+					},
+				},
+				InitialDelaySeconds: 2,
+				PeriodSeconds:       3,
+				FailureThreshold:    10,
 			},
 		}
 
+		// Apply resource requirements (with sensible defaults)
 		if cluster.Spec.Resources.Limits != nil || cluster.Spec.Resources.Requests != nil {
 			container.Resources = cluster.Spec.Resources
+		} else {
+			container.Resources = corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("100m"),
+					corev1.ResourceMemory: resource.MustParse("128Mi"),
+				},
+				Limits: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("512Mi"),
+				},
+			}
+		}
+
+		// Build pod security context
+		podSC := r.buildPodSecurityContext(cluster)
+
+		podSpec := corev1.PodSpec{
+			Containers:                []corev1.Container{container},
+			SecurityContext:           podSC,
+			TerminationGracePeriodSeconds: ptr.To(int64(30)),
+			AutomountServiceAccountToken:  ptr.To(false),
+		}
+
+		if cluster.Spec.ServiceAccountName != "" {
+			podSpec.ServiceAccountName = cluster.Spec.ServiceAccountName
+			podSpec.AutomountServiceAccountToken = ptr.To(true)
+		}
+
+		// Apply topology spread constraints
+		if len(cluster.Spec.TopologySpreadConstraints) > 0 {
+			podSpec.TopologySpreadConstraints = cluster.Spec.TopologySpreadConstraints
+		} else if replicas > 1 {
+			// Default: spread across zones for HA
+			podSpec.TopologySpreadConstraints = []corev1.TopologySpreadConstraint{
+				{
+					MaxSkew:           1,
+					TopologyKey:       "topology.kubernetes.io/zone",
+					WhenUnsatisfiable: corev1.ScheduleAnyway,
+					LabelSelector:     &metav1.LabelSelector{MatchLabels: labels},
+				},
+			}
+			podSpec.Affinity = &corev1.Affinity{
+				PodAntiAffinity: &corev1.PodAntiAffinity{
+					PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{
+						{
+							Weight: 100,
+							PodAffinityTerm: corev1.PodAffinityTerm{
+								LabelSelector: &metav1.LabelSelector{MatchLabels: labels},
+								TopologyKey:   "kubernetes.io/hostname",
+							},
+						},
+					},
+				},
+			}
 		}
 
 		dep.Spec.Template = corev1.PodTemplateSpec{
 			ObjectMeta: metav1.ObjectMeta{Labels: labels},
-			Spec: corev1.PodSpec{
-				Containers: []corev1.Container{container},
-			},
+			Spec:       podSpec,
 		}
 		return nil
 	})
@@ -330,11 +427,41 @@ func (r *OJSClusterReconciler) reconcileEmbeddedRedis(ctx context.Context, clust
 		dep.Spec.Template = corev1.PodTemplateSpec{
 			ObjectMeta: metav1.ObjectMeta{Labels: labels},
 			Spec: corev1.PodSpec{
+				SecurityContext: &corev1.PodSecurityContext{
+					RunAsNonRoot: ptr.To(true),
+					RunAsUser:    ptr.To(int64(999)),
+					RunAsGroup:   ptr.To(int64(999)),
+					SeccompProfile: &corev1.SeccompProfile{
+						Type: corev1.SeccompProfileTypeRuntimeDefault,
+					},
+				},
+				AutomountServiceAccountToken: ptr.To(false),
 				Containers: []corev1.Container{{
-					Name:  "redis",
-					Image: "redis:7-alpine",
+					Name:            "redis",
+					Image:           "redis:7-alpine",
+					ImagePullPolicy: corev1.PullIfNotPresent,
 					Ports: []corev1.ContainerPort{
 						{Name: "redis", ContainerPort: 6379, Protocol: corev1.ProtocolTCP},
+					},
+					SecurityContext: &corev1.SecurityContext{
+						AllowPrivilegeEscalation: ptr.To(false),
+						ReadOnlyRootFilesystem:   ptr.To(true),
+						Capabilities: &corev1.Capabilities{
+							Drop: []corev1.Capability{"ALL"},
+						},
+					},
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("50m"),
+							corev1.ResourceMemory: resource.MustParse("64Mi"),
+						},
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("500m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+					VolumeMounts: []corev1.VolumeMount{
+						{Name: "redis-data", MountPath: "/data"},
 					},
 					ReadinessProbe: &corev1.Probe{
 						ProbeHandler: corev1.ProbeHandler{
@@ -344,7 +471,24 @@ func (r *OJSClusterReconciler) reconcileEmbeddedRedis(ctx context.Context, clust
 						},
 						PeriodSeconds: 5,
 					},
+					LivenessProbe: &corev1.Probe{
+						ProbeHandler: corev1.ProbeHandler{
+							Exec: &corev1.ExecAction{
+								Command: []string{"redis-cli", "ping"},
+							},
+						},
+						InitialDelaySeconds: 10,
+						PeriodSeconds:       10,
+					},
 				}},
+				Volumes: []corev1.Volume{
+					{
+						Name: "redis-data",
+						VolumeSource: corev1.VolumeSource{
+							EmptyDir: &corev1.EmptyDirVolumeSource{},
+						},
+					},
+				},
 			},
 		}
 		return nil
@@ -369,6 +513,82 @@ func (r *OJSClusterReconciler) reconcileEmbeddedRedis(ctx context.Context, clust
 		svc.Spec.Selector = labels
 		svc.Spec.Ports = []corev1.ServicePort{
 			{Name: "redis", Port: 6379, TargetPort: intstr.FromString("redis"), Protocol: corev1.ProtocolTCP},
+		}
+		return nil
+	})
+	return err
+}
+
+func (r *OJSClusterReconciler) buildPodSecurityContext(cluster *ojsv1alpha1.OJSCluster) *corev1.PodSecurityContext {
+	sc := &corev1.PodSecurityContext{
+		RunAsNonRoot: ptr.To(true),
+		RunAsUser:    ptr.To(int64(65534)),
+		RunAsGroup:   ptr.To(int64(65534)),
+		SeccompProfile: &corev1.SeccompProfile{
+			Type: corev1.SeccompProfileTypeRuntimeDefault,
+		},
+	}
+	if cluster.Spec.SecurityContext != nil {
+		if cluster.Spec.SecurityContext.RunAsNonRoot != nil {
+			sc.RunAsNonRoot = cluster.Spec.SecurityContext.RunAsNonRoot
+		}
+		if cluster.Spec.SecurityContext.RunAsUser != nil {
+			sc.RunAsUser = cluster.Spec.SecurityContext.RunAsUser
+		}
+		if cluster.Spec.SecurityContext.RunAsGroup != nil {
+			sc.RunAsGroup = cluster.Spec.SecurityContext.RunAsGroup
+		}
+		if cluster.Spec.SecurityContext.FSGroup != nil {
+			sc.FSGroup = cluster.Spec.SecurityContext.FSGroup
+		}
+	}
+	return sc
+}
+
+func (r *OJSClusterReconciler) reconcilePDB(ctx context.Context, cluster *ojsv1alpha1.OJSCluster) error {
+	replicas := int32(2)
+	if cluster.Spec.Replicas != nil {
+		replicas = *cluster.Spec.Replicas
+	}
+
+	// PDB only makes sense with >1 replicas
+	if replicas <= 1 {
+		return nil
+	}
+
+	// Check if PDB is explicitly disabled
+	if cluster.Spec.PodDisruptionBudget != nil && cluster.Spec.PodDisruptionBudget.Enabled != nil && !*cluster.Spec.PodDisruptionBudget.Enabled {
+		return nil
+	}
+
+	pdb := &policyv1.PodDisruptionBudget{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cluster.Name + "-server",
+			Namespace: cluster.Namespace,
+		},
+	}
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, pdb, func() error {
+		if err := ctrl.SetControllerReference(cluster, pdb, r.Scheme); err != nil {
+			return err
+		}
+		labels := labelsForCluster(cluster.Name)
+		pdb.Labels = labels
+		pdb.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
+
+		if cluster.Spec.PodDisruptionBudget != nil && cluster.Spec.PodDisruptionBudget.MinAvailable != nil {
+			minAvail := intstr.FromInt32(*cluster.Spec.PodDisruptionBudget.MinAvailable)
+			pdb.Spec.MinAvailable = &minAvail
+			pdb.Spec.MaxUnavailable = nil
+		} else if cluster.Spec.PodDisruptionBudget != nil && cluster.Spec.PodDisruptionBudget.MaxUnavailable != nil {
+			maxUnavail := intstr.FromInt32(*cluster.Spec.PodDisruptionBudget.MaxUnavailable)
+			pdb.Spec.MaxUnavailable = &maxUnavail
+			pdb.Spec.MinAvailable = nil
+		} else {
+			// Default: allow at most 1 pod unavailable
+			maxUnavail := intstr.FromInt(1)
+			pdb.Spec.MaxUnavailable = &maxUnavail
+			pdb.Spec.MinAvailable = nil
 		}
 		return nil
 	})
@@ -535,6 +755,7 @@ func (r *OJSClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ConfigMap{}).
+		Owns(&policyv1.PodDisruptionBudget{}).
 		Named("ojscluster").
 		Complete(r)
 }

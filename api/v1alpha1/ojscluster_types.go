@@ -22,6 +22,42 @@ type OJSClusterSpec struct {
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
 	// Monitoring configuration.
 	Monitoring *MonitoringSpec `json:"monitoring,omitempty"`
+	// SecurityContext configures pod-level security settings.
+	SecurityContext *PodSecuritySpec `json:"securityContext,omitempty"`
+	// PodDisruptionBudget configures disruption budgets for HA.
+	PodDisruptionBudget *PDBSpec `json:"podDisruptionBudget,omitempty"`
+	// TopologySpreadConstraints configures pod topology spread for HA.
+	TopologySpreadConstraints []corev1.TopologySpreadConstraint `json:"topologySpreadConstraints,omitempty"`
+	// ServiceAccountName overrides the service account for the server pods.
+	ServiceAccountName string `json:"serviceAccountName,omitempty"`
+}
+
+// PodSecuritySpec defines security settings applied to the OJS pods.
+type PodSecuritySpec struct {
+	// RunAsNonRoot enforces non-root execution (default true).
+	// +kubebuilder:default=true
+	RunAsNonRoot *bool `json:"runAsNonRoot,omitempty"`
+	// RunAsUser sets the UID for the container process.
+	// +kubebuilder:default=65534
+	RunAsUser *int64 `json:"runAsUser,omitempty"`
+	// RunAsGroup sets the GID for the container process.
+	// +kubebuilder:default=65534
+	RunAsGroup *int64 `json:"runAsGroup,omitempty"`
+	// FSGroup sets the filesystem group for volumes.
+	FSGroup *int64 `json:"fsGroup,omitempty"`
+	// ReadOnlyRootFilesystem mounts the root filesystem as read-only (default true).
+	// +kubebuilder:default=true
+	ReadOnlyRootFilesystem *bool `json:"readOnlyRootFilesystem,omitempty"`
+}
+
+// PDBSpec defines PodDisruptionBudget settings.
+type PDBSpec struct {
+	// Enabled creates a PodDisruptionBudget for the server deployment (default true for replicas > 1).
+	Enabled *bool `json:"enabled,omitempty"`
+	// MinAvailable is the minimum number of pods that must remain available.
+	MinAvailable *int32 `json:"minAvailable,omitempty"`
+	// MaxUnavailable is the maximum number of pods that can be unavailable.
+	MaxUnavailable *int32 `json:"maxUnavailable,omitempty"`
 }
 
 // BackendSpec defines the backend storage configuration.
