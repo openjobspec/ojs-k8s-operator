@@ -68,6 +68,14 @@ serviceMonitor:
     enabled: true
 
 # Webhooks
+# ⚠️  NOTE: Webhooks are DISABLED by default. When disabled, OJSCluster and OJSWorker
+# custom resources are NOT validated on admission — invalid specs may reach the cluster.
+#
+# To enable webhook validation, you need one of:
+#   1. cert-manager installed → set webhook.enabled=true and webhook.certManager.enabled=true
+#   2. Manual TLS certs → set webhook.enabled=true and provide certs via a Secret
+#
+# Recommended for production: enable webhooks with cert-manager to catch invalid CRDs early.
 webhook:
   enabled: false
   failurePolicy: Fail
