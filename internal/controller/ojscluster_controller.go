@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -36,6 +37,8 @@ const (
 	condProgressing  = "Progressing"
 	condDegraded     = "Degraded"
 	condBackend      = "BackendReady"
+
+	reconcileRequeueDelay = 10 * time.Second
 )
 
 // OJSClusterReconciler reconciles OJSCluster objects.
@@ -102,9 +105,11 @@ func (r *OJSClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			logger.Error(err, "failed to reconcile embedded backend")
 			r.setCondition(cluster, condBackend, metav1.ConditionFalse, "BackendFailed", err.Error())
 			r.setCondition(cluster, condDegraded, metav1.ConditionTrue, "BackendFailed", err.Error())
-			_ = r.Status().Update(ctx, cluster)
+			if statusErr := r.Status().Update(ctx, cluster); statusErr != nil {
+				logger.Error(statusErr, "failed to update status during backend failure")
+			}
 			r.recordEvent(cluster, corev1.EventTypeWarning, "BackendFailed", err.Error())
-			return ctrl.Result{}, err
+			return ctrl.Result{RequeueAfter: reconcileRequeueDelay}, err
 		}
 		r.setCondition(cluster, condBackend, metav1.ConditionTrue, "BackendReady", "Embedded backend is running")
 	}
@@ -112,25 +117,25 @@ func (r *OJSClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	// Reconcile ConfigMap
 	if err := r.reconcileConfigMap(ctx, cluster); err != nil {
 		logger.Error(err, "failed to reconcile ConfigMap")
-		return ctrl.Result{}, err
+		return ctrl.Result{RequeueAfter: reconcileRequeueDelay}, err
 	}
 
 	// Reconcile OJS server Deployment
 	if err := r.reconcileDeployment(ctx, cluster); err != nil {
 		logger.Error(err, "failed to reconcile Deployment")
-		return ctrl.Result{}, err
+		return ctrl.Result{RequeueAfter: reconcileRequeueDelay}, err
 	}
 
 	// Reconcile Service
 	if err := r.reconcileService(ctx, cluster); err != nil {
 		logger.Error(err, "failed to reconcile Service")
-		return ctrl.Result{}, err
+		return ctrl.Result{RequeueAfter: reconcileRequeueDelay}, err
 	}
 
 	// Reconcile PodDisruptionBudget for HA
 	if err := r.reconcilePDB(ctx, cluster); err != nil {
 		logger.Error(err, "failed to reconcile PodDisruptionBudget")
-		return ctrl.Result{}, err
+		return ctrl.Result{RequeueAfter: reconcileRequeueDelay}, err
 	}
 
 	// Reconcile ServiceMonitor if monitoring enabled
@@ -144,7 +149,7 @@ func (r *OJSClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	// Update status from Deployment
 	if err := r.updateStatus(ctx, cluster); err != nil {
 		logger.Error(err, "failed to update status")
-		return ctrl.Result{}, err
+		return ctrl.Result{RequeueAfter: reconcileRequeueDelay}, err
 	}
 
 	return ctrl.Result{}, nil
