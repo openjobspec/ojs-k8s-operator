@@ -354,3 +354,154 @@ func (in *GracefulShutdownSpec) DeepCopy() *GracefulShutdownSpec {
 	in.DeepCopyInto(out)
 	return out
 }
+
+// DeepCopyInto copies all properties into another HardwareRequirement.
+func (in *HardwareRequirement) DeepCopyInto(out *HardwareRequirement) {
+	*out = *in
+}
+
+// DeepCopy returns a deep copy of the HardwareRequirement.
+func (in *HardwareRequirement) DeepCopy() *HardwareRequirement {
+	if in == nil {
+		return nil
+	}
+	out := new(HardwareRequirement)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyInto copies all properties into another ModelPolicy.
+func (in *ModelPolicy) DeepCopyInto(out *ModelPolicy) {
+	*out = *in
+	if in.AllowedModels != nil {
+		in, out := &in.AllowedModels, &out.AllowedModels
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
+}
+
+// DeepCopy returns a deep copy of the ModelPolicy.
+func (in *ModelPolicy) DeepCopy() *ModelPolicy {
+	if in == nil {
+		return nil
+	}
+	out := new(ModelPolicy)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyInto copies all properties into another OJSAttestationPolicySpec.
+func (in *OJSAttestationPolicySpec) DeepCopyInto(out *OJSAttestationPolicySpec) {
+	*out = *in
+	if in.JobTypes != nil {
+		in, out := &in.JobTypes, &out.JobTypes
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
+	if in.Hardware != nil {
+		in, out := &in.Hardware, &out.Hardware
+		*out = make([]HardwareRequirement, len(*in))
+		copy(*out, *in)
+	}
+	if in.Regions != nil {
+		in, out := &in.Regions, &out.Regions
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
+	if in.ModelPolicy != nil {
+		in, out := &in.ModelPolicy, &out.ModelPolicy
+		*out = new(ModelPolicy)
+		(*in).DeepCopyInto(*out)
+	}
+}
+
+// DeepCopy returns a deep copy of the OJSAttestationPolicySpec.
+func (in *OJSAttestationPolicySpec) DeepCopy() *OJSAttestationPolicySpec {
+	if in == nil {
+		return nil
+	}
+	out := new(OJSAttestationPolicySpec)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyInto copies all properties into another OJSAttestationPolicyStatus.
+func (in *OJSAttestationPolicyStatus) DeepCopyInto(out *OJSAttestationPolicyStatus) {
+	*out = *in
+	if in.Conditions != nil {
+		in, out := &in.Conditions, &out.Conditions
+		*out = make([]metav1.Condition, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
+}
+
+// DeepCopy returns a deep copy of the OJSAttestationPolicyStatus.
+func (in *OJSAttestationPolicyStatus) DeepCopy() *OJSAttestationPolicyStatus {
+	if in == nil {
+		return nil
+	}
+	out := new(OJSAttestationPolicyStatus)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyInto copies all properties into another OJSAttestationPolicy.
+func (in *OJSAttestationPolicy) DeepCopyInto(out *OJSAttestationPolicy) {
+	*out = *in
+	out.TypeMeta = in.TypeMeta
+	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
+	in.Spec.DeepCopyInto(&out.Spec)
+	in.Status.DeepCopyInto(&out.Status)
+}
+
+// DeepCopy returns a deep copy of the OJSAttestationPolicy.
+func (in *OJSAttestationPolicy) DeepCopy() *OJSAttestationPolicy {
+	if in == nil {
+		return nil
+	}
+	out := new(OJSAttestationPolicy)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyObject returns a deep copy as runtime.Object.
+func (in *OJSAttestationPolicy) DeepCopyObject() runtime.Object {
+	if c := in.DeepCopy(); c != nil {
+		return c
+	}
+	return nil
+}
+
+// DeepCopyInto copies all properties into another OJSAttestationPolicyList.
+func (in *OJSAttestationPolicyList) DeepCopyInto(out *OJSAttestationPolicyList) {
+	*out = *in
+	out.TypeMeta = in.TypeMeta
+	in.ListMeta.DeepCopyInto(&out.ListMeta)
+	if in.Items != nil {
+		in, out := &in.Items, &out.Items
+		*out = make([]OJSAttestationPolicy, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
+}
+
+// DeepCopy returns a deep copy of the OJSAttestationPolicyList.
+func (in *OJSAttestationPolicyList) DeepCopy() *OJSAttestationPolicyList {
+	if in == nil {
+		return nil
+	}
+	out := new(OJSAttestationPolicyList)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyObject returns a deep copy as runtime.Object.
+func (in *OJSAttestationPolicyList) DeepCopyObject() runtime.Object {
+	if c := in.DeepCopy(); c != nil {
+		return c
+	}
+	return nil
+}

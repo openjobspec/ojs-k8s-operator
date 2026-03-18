@@ -1,4 +1,5 @@
 # OJS Kubernetes Operator
+[![Stability: beta](https://img.shields.io/badge/stability-beta-yellow.svg)](https://github.com/openjobspec/openjobspec/blob/main/STABILITY.md)
 
 > [!NOTE]
 > **🔧 Beta** — This project is under active development. APIs are stabilizing but may still change. Feedback and contributions are welcome.
