@@ -87,7 +87,9 @@ func (r *OJSWorkerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			r.setWorkerCondition(worker, condWorkerDegraded, metav1.ConditionTrue, "ClusterNotFound",
 				fmt.Sprintf("OJSCluster %q not found", worker.Spec.ClusterRef))
 			worker.Status.Phase = "Error"
-			_ = r.Status().Update(ctx, worker)
+			if updateErr := r.Status().Update(ctx, worker); updateErr != nil {
+				logger.Error(updateErr, "failed to update worker status after cluster not found")
+			}
 			r.recordEvent(worker, corev1.EventTypeWarning, "ClusterNotFound",
 				fmt.Sprintf("Referenced OJSCluster %q not found", worker.Spec.ClusterRef))
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
