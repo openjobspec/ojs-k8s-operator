@@ -11,6 +11,16 @@ import (
 )
 
 // ValidBackendTypes lists all supported OJS backend types.
+//
+// It is exported for backward-compatible introspection (e.g. callers that
+// want to enumerate supported types) but is NOT consulted by
+// validateOJSCluster: a mutable package-level map read concurrently by
+// admission requests (with no synchronization) would be a data race the
+// moment any caller wrote to it. Validation instead checks against
+// validBackendTypes, an unexported, never-mutated-after-init set built from
+// the same values. Mutating ValidBackendTypes at runtime has always been
+// unsafe and now has no effect on validation; this is a deliberate,
+// documented behavior change from silently trusting caller mutations.
 var ValidBackendTypes = map[string]bool{
 	"redis":    true,
 	"postgres": true,
@@ -19,6 +29,20 @@ var ValidBackendTypes = map[string]bool{
 	"sqs":      true,
 	"lite":     true,
 }
+
+// validBackendTypes is the immutable set actually consulted by validation.
+// It is derived from ValidBackendTypes once at package init and never
+// written to again, so concurrent admission requests can read it without
+// synchronization or risk of a data race.
+var validBackendTypes = func() map[string]struct{} {
+	set := make(map[string]struct{}, len(ValidBackendTypes))
+	for backendType, valid := range ValidBackendTypes {
+		if valid {
+			set[backendType] = struct{}{}
+		}
+	}
+	return set
+}()
 
 // OJSClusterValidator validates OJSCluster resources.
 type OJSClusterValidator struct{}
@@ -49,7 +73,7 @@ func validateOJSCluster(cluster *ojsv1alpha1.OJSCluster) error {
 	if cluster.Spec.Backend.Type == "" {
 		return fmt.Errorf("spec.backend.type is required")
 	}
-	if !ValidBackendTypes[cluster.Spec.Backend.Type] {
+	if _, ok := validBackendTypes[cluster.Spec.Backend.Type]; !ok {
 		return fmt.Errorf("spec.backend.type %q is not valid; must be one of: redis, postgres, nats, kafka, sqs, lite",
 			cluster.Spec.Backend.Type)
 	}
