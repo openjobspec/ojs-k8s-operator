@@ -1,4 +1,5 @@
-IMG ?= ghcr.io/openjobspec/ojs-k8s-operator:latest
+VERSION ?= 0.5.0
+IMG ?= ghcr.io/openjobspec/ojs-k8s-operator:v$(VERSION)
 HELM_CHART_DIR = charts/ojs-operator
 
 .PHONY: build test lint run docker-build docker-push install uninstall deploy undeploy generate helm-lint helm-template helm-package helm-install helm-uninstall
@@ -20,7 +21,7 @@ run: build
 ##@ Docker
 
 docker-build:
-	docker build -t $(IMG) .
+	docker build --build-arg VERSION=$(VERSION) -t $(IMG) .
 
 docker-push:
 	docker push $(IMG)

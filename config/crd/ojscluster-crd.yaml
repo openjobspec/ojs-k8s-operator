@@ -96,6 +96,7 @@ spec:
                   default: 2
                   minimum: 1
                 image:
+                  default: ghcr.io/openjobspec/ojs-server:v0.5.0
                   description: Image to use for the OJS server.
                   type: string
                 autoScaling:

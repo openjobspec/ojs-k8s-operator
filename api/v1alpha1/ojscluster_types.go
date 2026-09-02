@@ -14,7 +14,7 @@ type OJSClusterSpec struct {
 	// +kubebuilder:default=2
 	Replicas *int32 `json:"replicas,omitempty"`
 	// Image to use for the OJS server.
-	// +kubebuilder:default="ghcr.io/openjobspec/ojs-server:latest"
+	// +kubebuilder:default="ghcr.io/openjobspec/ojs-server:v0.5.0"
 	Image string `json:"image,omitempty"`
 	// Worker auto-scaling configuration.
 	AutoScaling *AutoScalingSpec `json:"autoScaling,omitempty"`

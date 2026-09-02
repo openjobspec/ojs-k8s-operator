@@ -9,7 +9,7 @@ spec:
     type: redis
     embedded: true
   replicas: 3
-  image: ghcr.io/openjobspec/ojs-backend-redis:v0.1.0
+  image: ghcr.io/openjobspec/ojs-backend-redis:v0.5.0
   autoScaling:
     enabled: true
     minReplicas: 3

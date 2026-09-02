@@ -7,6 +7,17 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-02
+
+### Added
+- Security scanning and tag-driven release-readiness validation for Go, Helm, and container builds.
+
+### Fixed
+- Helm chart, operator deployment, examples, and documentation now consistently reference version 0.5.0.
+- Vulnerable `golang.org/x/net` and `golang.org/x/text` dependency versions were upgraded to fixed releases.
+- GolangCI-Lint configuration now uses the supported v2 schema and validates with golangci-lint 2.12.2.
+- Replica calculations remain in `int64` until bounded, preventing overflow before conversion to Kubernetes `int32` replica counts.
+
 ## [0.4.0] - 2026-04-20
 
 ### Added
