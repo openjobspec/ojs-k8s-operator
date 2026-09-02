@@ -4,10 +4,12 @@ Thank you for your interest in contributing!
 
 ## Getting Started
 
+Go 1.25+ and Make are required.
+
 1. Fork the repository
 2. Clone your fork and create a branch from `main`
 3. Make your changes
-4. Run tests before submitting
+4. Run `make lint`, `make test`, and `make build` before submitting
 
 ## Commit Messages
 
