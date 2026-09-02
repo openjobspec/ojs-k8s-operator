@@ -29,6 +29,9 @@ spec:
             - /manager
           args:
             - --leader-elect
+          env:
+            - name: ENABLE_WEBHOOKS
+              value: "false"
           ports:
             - name: health
               containerPort: 8081

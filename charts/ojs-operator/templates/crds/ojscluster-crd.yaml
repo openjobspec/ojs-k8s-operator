@@ -223,4 +223,3 @@ spec:
                       message:
                         type: string
 {{- end }}
-
