@@ -12,10 +12,11 @@ The `OJSCluster` resource manages the OJS server deployment, service, and option
 |-------|------|----------|---------|-------------|
 | `backend` | [BackendSpec](#backendspec) | **Yes** | — | Backend storage configuration |
 | `replicas` | int32 | No | `2` | Number of OJS server replicas |
-| `image` | string | No | `ghcr.io/openjobspec/ojs-server:latest` | OJS server container image |
+| `image` | string | No | `ghcr.io/openjobspec/ojs-server:v0.5.0` | OJS server container image |
 | `autoScaling` | [AutoScalingSpec](#autoscalingspec) | No | — | Server auto-scaling configuration |
 | `resources` | [ResourceRequirements](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcerequirements-v1-core) | No | — | CPU/memory resource requests and limits |
 | `monitoring` | [MonitoringSpec](#monitoringspec) | No | — | Prometheus monitoring configuration |
+| `podDisruptionBudget` | [PDBSpec](#pdbspec) | No | enabled for replicas > 1 | Server disruption-budget configuration |
 
 ### BackendSpec
 
@@ -55,6 +56,14 @@ The `OJSCluster` resource manages the OJS server deployment, service, and option
 | `serviceMonitor` | bool | No | `false` | Create a Prometheus ServiceMonitor resource |
 | `grafanaDashboard` | bool | No | `false` | Create a Grafana dashboard ConfigMap |
 
+### PDBSpec
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `enabled` | bool | No | replicas > 1 | Create a server PDB; disabling it or reducing replicas to 1 removes only an operator-owned PDB |
+| `minAvailable` | int32 | No | — | Minimum number of available server pods |
+| `maxUnavailable` | int32 | No | `1` | Maximum unavailable pods when `minAvailable` is unset |
+
 ### status
 
 | Field | Type | Description |
@@ -92,7 +101,7 @@ The `OJSWorker` resource manages worker deployments and optional HPA for queue-d
 | `jobTypes` | []string | **Yes** | — | Job types this worker handles |
 | `queues` | []string | No | `["default"]` | Queues this worker processes |
 | `concurrency` | int32 | No | `0` (unlimited) | Concurrent jobs per worker pod |
-| `replicas` | int32 | No | `1` | Desired worker pod count |
+| `replicas` | int32 | No | `1` | Desired count without autoscaling; initial HPA size when autoscaling is enabled |
 | `image` | string | **Yes** | — | Worker container image |
 | `command` | []string | No | — | Container command override |
 | `env` | []EnvVar | No | — | Additional environment variables |
@@ -111,6 +120,10 @@ The `OJSWorker` resource manages worker deployments and optional HPA for queue-d
 | `scaleUpThreshold` | int64 | No | — | Queue depth threshold to trigger scale-up |
 | `scaleDownDelay` | string | No | — | Delay before scale-down (e.g., `5m`) |
 | `pollingInterval` | string | No | `30s` | Interval to check queue metrics |
+
+While `autoScaling.enabled` is true, the HPA owns the Deployment replica count and normal
+reconciliation preserves it. Disabling autoscaling deletes the HPA and resumes replica
+management from `spec.replicas`.
 
 ### GracefulShutdownSpec
 

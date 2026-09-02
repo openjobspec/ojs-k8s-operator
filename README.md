@@ -89,6 +89,12 @@ make install
 make deploy
 ```
 
+The raw manager manifest enables leader election but sets `ENABLE_WEBHOOKS=false`
+because it does not provision webhook TLS certificates. To enable admission
+webhooks for a raw installation, provision and mount serving certificates,
+configure the webhook admission resources, and change the manager environment
+to `ENABLE_WEBHOOKS=true` with the matching `WEBHOOK_CERT_DIR`.
+
 ### Option 2: Helm
 
 ```bash
@@ -100,17 +106,13 @@ helm install ojs-operator charts/ojs-operator \
 # Or with custom values
 helm install ojs-operator charts/ojs-operator \
   --namespace ojs-system \
-  --set image.tag=v0.2.0 \
+  --set image.tag=v0.5.0 \
   --set replicaCount=2
 ```
 
-### Option 3: OLM (Operator Lifecycle Manager)
-
-```bash
-# If your cluster has OLM installed
-kubectl apply -f https://raw.githubusercontent.com/openjobspec/ojs-k8s-operator/main/config/olm/catalogsource.yaml
-kubectl apply -f https://raw.githubusercontent.com/openjobspec/ojs-k8s-operator/main/config/olm/subscription.yaml
-```
+Helm enables leader election and admission webhooks by default and provisions
+webhook certificates through cert-manager. Set `webhook.enabled=false` when
+certificate provisioning is unavailable.
 
 ## CRD Reference
 
@@ -128,7 +130,7 @@ Defines an OJS server cluster deployment.
 | `backend.urlSecretRef.key` | string | | Key within the Secret |
 | `backend.embedded` | bool | `false` | Auto-deploy the backend (Redis only) |
 | `replicas` | int32 | `2` | Number of OJS server replicas |
-| `image` | string | `ghcr.io/openjobspec/ojs-server:latest` | OJS server container image |
+| `image` | string | `ghcr.io/openjobspec/ojs-server:v0.5.0` | OJS server container image |
 | `resources` | ResourceRequirements | | Pod resource requests/limits |
 | `autoScaling.enabled` | bool | | Enable auto-scaling |
 | `autoScaling.minReplicas` | int32 | | Minimum replica count |
@@ -140,6 +142,9 @@ Defines an OJS server cluster deployment.
 | `monitoring.enabled` | bool | | Enable Prometheus metrics |
 | `monitoring.serviceMonitor` | bool | | Create ServiceMonitor resource |
 | `monitoring.grafanaDashboard` | bool | | Create Grafana dashboard ConfigMap |
+| `podDisruptionBudget.enabled` | bool | replicas > 1 | Create a PDB; disabling it or reducing replicas to 1 removes only an operator-owned PDB |
+| `podDisruptionBudget.minAvailable` | int32 | | Minimum available server pods |
+| `podDisruptionBudget.maxUnavailable` | int32 | `1` | Maximum unavailable server pods when `minAvailable` is unset |
 
 #### Status Fields
 
@@ -164,7 +169,7 @@ Defines a worker deployment that processes jobs from an OJSCluster.
 | `jobTypes` | []string | *required* | Job types this worker handles |
 | `queues` | []string | `["default"]` | Queues to process |
 | `concurrency` | int32 | | Concurrent jobs per pod |
-| `replicas` | int32 | `1` | Number of worker pods |
+| `replicas` | int32 | `1` | Worker pod count when autoscaling is disabled; initial HPA size when enabled |
 | `image` | string | *required* | Worker container image |
 | `command` | []string | | Command override |
 | `env` | []EnvVar | | Additional environment variables |
@@ -178,6 +183,9 @@ Defines a worker deployment that processes jobs from an OJSCluster.
 | `autoScaling.pollingInterval` | string | | Queue metrics polling interval (e.g., `30s`) |
 | `gracefulShutdown.timeoutSeconds` | int32 | `30` | Max time to wait for active jobs |
 | `gracefulShutdown.drainBeforeShutdown` | bool | | Wait for active jobs to complete |
+
+When worker autoscaling is enabled, the HPA owns the Deployment replica count. Reconciliation
+preserves HPA-written replicas; disabling autoscaling resumes management from `spec.replicas`.
 
 #### Status Fields
 
@@ -226,7 +234,7 @@ spec:
       name: redis-credentials
       key: url
   replicas: 3
-  image: ghcr.io/openjobspec/ojs-backend-redis:v0.1.0
+  image: ghcr.io/openjobspec/ojs-backend-redis:v0.5.0
   resources:
     requests:
       cpu: "250m"
@@ -405,5 +413,4 @@ kubectl patch ojscluster <name> -p '{"metadata":{"finalizers":null}}' --type=mer
 
 ## License
 
-Apache License 2.0 — see [LICENSE](../LICENSE) for details.
-
+Apache License 2.0 — see [LICENSE](LICENSE) for details.
