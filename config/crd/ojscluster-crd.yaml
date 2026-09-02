@@ -156,6 +156,23 @@ spec:
                       type: boolean
                     grafanaDashboard:
                       type: boolean
+                podDisruptionBudget:
+                  description: PodDisruptionBudget configures disruption budgets for HA.
+                  type: object
+                  properties:
+                    enabled:
+                      description: Enabled creates a PodDisruptionBudget for the server deployment (default true for replicas > 1).
+                      type: boolean
+                    minAvailable:
+                      description: MinAvailable is the minimum number of pods that must remain available.
+                      type: integer
+                      format: int32
+                      minimum: 0
+                    maxUnavailable:
+                      description: MaxUnavailable is the maximum number of pods that can be unavailable.
+                      type: integer
+                      format: int32
+                      minimum: 0
             status:
               description: OJSClusterStatus defines the observed state of an OJS cluster.
               type: object

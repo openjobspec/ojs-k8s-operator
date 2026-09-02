@@ -55,8 +55,10 @@ type PDBSpec struct {
 	// Enabled creates a PodDisruptionBudget for the server deployment (default true for replicas > 1).
 	Enabled *bool `json:"enabled,omitempty"`
 	// MinAvailable is the minimum number of pods that must remain available.
+	// +kubebuilder:validation:Minimum=0
 	MinAvailable *int32 `json:"minAvailable,omitempty"`
 	// MaxUnavailable is the maximum number of pods that can be unavailable.
+	// +kubebuilder:validation:Minimum=0
 	MaxUnavailable *int32 `json:"maxUnavailable,omitempty"`
 }
 

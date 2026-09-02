@@ -88,5 +88,13 @@ func validateOJSCluster(cluster *ojsv1alpha1.OJSCluster) error {
 			return fmt.Errorf("spec.autoScaling.maxReplicas must be >= minReplicas")
 		}
 	}
+	if cluster.Spec.PodDisruptionBudget != nil {
+		if cluster.Spec.PodDisruptionBudget.MinAvailable != nil && *cluster.Spec.PodDisruptionBudget.MinAvailable < 0 {
+			return fmt.Errorf("spec.podDisruptionBudget.minAvailable must be >= 0")
+		}
+		if cluster.Spec.PodDisruptionBudget.MaxUnavailable != nil && *cluster.Spec.PodDisruptionBudget.MaxUnavailable < 0 {
+			return fmt.Errorf("spec.podDisruptionBudget.maxUnavailable must be >= 0")
+		}
+	}
 	return nil
 }

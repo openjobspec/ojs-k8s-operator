@@ -85,6 +85,41 @@ func TestValidateOJSCluster_AutoScalingInvalid(t *testing.T) {
 	}
 }
 
+func TestValidateOJSCluster_PodDisruptionBudgetValues(t *testing.T) {
+	tests := []struct {
+		name           string
+		minAvailable   *int32
+		maxUnavailable *int32
+		wantErr        bool
+	}{
+		{name: "zero values are valid", minAvailable: int32Ptr(0), maxUnavailable: int32Ptr(0)},
+		{name: "negative minAvailable is invalid", minAvailable: int32Ptr(-1), wantErr: true},
+		{name: "negative maxUnavailable is invalid", maxUnavailable: int32Ptr(-1), wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cluster := &ojsv1alpha1.OJSCluster{
+				Spec: ojsv1alpha1.OJSClusterSpec{
+					Backend: ojsv1alpha1.BackendSpec{Type: "redis"},
+					PodDisruptionBudget: &ojsv1alpha1.PDBSpec{
+						MinAvailable:   tt.minAvailable,
+						MaxUnavailable: tt.maxUnavailable,
+					},
+				},
+			}
+
+			err := validateOJSCluster(cluster)
+			if tt.wantErr && err == nil {
+				t.Fatal("expected validation error")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("expected valid PDB values, got: %v", err)
+			}
+		})
+	}
+}
+
 func TestValidateOJSWorker_Valid(t *testing.T) {
 	worker := &ojsv1alpha1.OJSWorker{
 		ObjectMeta: metav1.ObjectMeta{Name: "test"},
