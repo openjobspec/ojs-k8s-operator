@@ -407,4 +407,3 @@ func TestWorkerStatus_ScalingPhase(t *testing.T) {
 		t.Error("expected Degraded=True during scaling")
 	}
 }
-
