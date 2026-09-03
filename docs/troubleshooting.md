@@ -181,6 +181,10 @@ kubectl annotate ojsworker <worker-name> reconcile=$(date +%s)
 
 ### Admission webhook errors on create/update
 
+Helm installations enable webhooks and provision their serving certificate
+through cert-manager by default. Raw manifests intentionally disable webhooks
+because they do not include certificate provisioning.
+
 **Check if webhooks are running:**
 
 ```bash
@@ -190,6 +194,10 @@ kubectl get validatingwebhookconfigurations
 **Disable webhooks (development only):**
 
 Set `ENABLE_WEBHOOKS=false` on the operator deployment.
+
+For a raw installation, enable webhooks only after supplying and mounting valid
+TLS certificates, setting `WEBHOOK_CERT_DIR`, changing `ENABLE_WEBHOOKS=true`,
+and configuring the admission webhook resources.
 
 ### "connection refused" errors from webhooks
 

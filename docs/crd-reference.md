@@ -14,7 +14,7 @@ Detailed field reference for the OJS Kubernetes Operator Custom Resource Definit
 |-------|------|----------|---------|------------|-------------|
 | `backend` | [BackendSpec](#backendspec) | **Yes** | — | — | Backend storage configuration |
 | `replicas` | *int32 | No | `2` | minimum: 1 | Number of OJS server replicas |
-| `image` | string | No | `ghcr.io/openjobspec/ojs-server:latest` | — | OJS server container image |
+| `image` | string | No | `ghcr.io/openjobspec/ojs-server:v0.5.0` | — | OJS server container image |
 | `autoScaling` | *[AutoScalingSpec](#autoscalingspec) | No | — | — | Server auto-scaling configuration |
 | `resources` | [ResourceRequirements](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcerequirements-v1-core) | No | — | — | CPU/memory resource requests and limits |
 | `monitoring` | *[MonitoringSpec](#monitoringspec) | No | — | — | Prometheus monitoring configuration |

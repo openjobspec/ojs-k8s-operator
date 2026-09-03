@@ -13,7 +13,8 @@ fullnameOverride: ""
 # Operator deployment settings
 replicaCount: 1
 
-# Leader election (recommended for HA)
+# Leader election (recommended for HA). When enabled, the chart also grants
+# coordination.k8s.io Lease permissions to the manager ServiceAccount.
 leaderElection:
   enabled: true
 
@@ -56,7 +57,9 @@ crds:
 healthProbe:
   port: 8081
 
-# Pod Disruption Budget
+# Pod Disruption Budget for the operator Deployment.
+# The ClusterRole always includes policy/v1 PodDisruptionBudget permissions
+# because the controller also manages PDBs for OJSCluster server Deployments.
 podDisruptionBudget:
   enabled: false
   minAvailable: 1
@@ -68,13 +71,16 @@ serviceMonitor:
     enabled: true
 
 # Webhooks
-# ⚠️  NOTE: Webhooks are DISABLED by default. When disabled, OJSCluster and OJSWorker
-# custom resources are NOT validated on admission — invalid specs may reach the cluster.
-#
 # Webhook validation for OJSCluster and OJSWorker CRDs.
 # Enabled by default to catch invalid resources early.
 # Requires cert-manager (https://cert-manager.io) for automatic TLS certificate management.
-# To disable (e.g., in dev clusters without cert-manager): set webhook.enabled=false
+# To disable (e.g., in dev clusters without cert-manager): set webhook.enabled=false.
+# ⚠️  NOTE: when disabled, OJSCluster and OJSWorker custom resources are NOT
+# validated on admission — invalid specs may reach the cluster.
+# When enabled, the Deployment mounts <release-fullname>-webhook-server-cert
+# at controller-runtime's serving certificate directory. If certManager.enabled
+# is false, provision that TLS Secret and webhook CA-bundle injection by
+# another mechanism before starting.
 webhook:
   enabled: true
   failurePolicy: Fail
@@ -82,7 +88,9 @@ webhook:
     enabled: true
     issuerRef:
       kind: Issuer
-      name: ""  # Auto-populated with self-signed issuer if empty
+      # Leave empty to render and use <release-fullname>-selfsigned-issuer.
+      # Set a name (and kind, if needed) to use an existing custom issuer.
+      name: ""
 
 # Node selector, tolerations, affinity
 nodeSelector: {}
@@ -94,4 +102,3 @@ commonLabels: {}
 
 # Additional annotations for the operator deployment
 podAnnotations: {}
-

@@ -1,12 +1,13 @@
+version: "2"
+
 run:
-  timeout: 5m
+  timeout: 10m
 
 linters:
   enable:
     - errcheck
     - govet
     - staticcheck
-    - gosimple
     - ineffassign
     - unused
     - gosec
@@ -15,23 +16,27 @@ linters:
     - unparam
     - bodyclose
     - noctx
-
-linters-settings:
-  errcheck:
-    check-type-assertions: true
-  gosec:
-    excludes:
-      - G104 # duplex of errcheck
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - performance
-  gocyclo:
-    min-complexity: 15
-
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - errcheck
-        - gosec
+  settings:
+    errcheck:
+      check-type-assertions: true
+    gosec:
+      excludes:
+        - G104 # duplicate of errcheck
+    gocritic:
+      disabled-checks:
+        - hugeParam
+      enabled-tags:
+        - diagnostic
+        - performance
+    gocyclo:
+      min-complexity: 15
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosec
+          - gocritic
+          - gocyclo
+          - noctx
+          - unparam

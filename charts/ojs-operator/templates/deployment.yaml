@@ -39,10 +39,22 @@ spec:
             {{- if .Values.leaderElection.enabled }}
             - --leader-elect
             {{- end }}
+          env:
+            - name: ENABLE_WEBHOOKS
+              value: {{ .Values.webhook.enabled | quote }}
+            {{- if .Values.webhook.enabled }}
+            - name: WEBHOOK_CERT_DIR
+              value: {{ include "ojs-operator.webhookCertDir" . | quote }}
+            {{- end }}
           ports:
             - name: health
               containerPort: {{ .Values.healthProbe.port }}
               protocol: TCP
+            {{- if .Values.webhook.enabled }}
+            - name: webhook
+              containerPort: 9443
+              protocol: TCP
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz
@@ -63,6 +75,18 @@ spec:
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          {{- if .Values.webhook.enabled }}
+          volumeMounts:
+            - name: webhook-cert
+              mountPath: {{ include "ojs-operator.webhookCertDir" . }}
+              readOnly: true
+          {{- end }}
+      {{- if .Values.webhook.enabled }}
+      volumes:
+        - name: webhook-cert
+          secret:
+            secretName: {{ include "ojs-operator.webhookCertSecretName" . }}
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -75,4 +99,3 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-

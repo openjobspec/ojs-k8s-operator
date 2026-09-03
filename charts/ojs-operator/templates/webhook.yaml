@@ -65,17 +65,19 @@ spec:
     - {{ include "ojs-operator.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc.cluster.local
   issuerRef:
     kind: {{ .Values.webhook.certManager.issuerRef.kind }}
-    name: {{ .Values.webhook.certManager.issuerRef.name }}
-  secretName: {{ include "ojs-operator.fullname" . }}-webhook-server-cert
+    name: {{ include "ojs-operator.webhookIssuerName" . }}
+  secretName: {{ include "ojs-operator.webhookCertSecretName" . }}
+{{- if not .Values.webhook.certManager.issuerRef.name }}
 ---
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
-  name: {{ include "ojs-operator.fullname" . }}-selfsigned-issuer
+  name: {{ include "ojs-operator.webhookIssuerName" . }}
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "ojs-operator.labels" . | nindent 4 }}
 spec:
   selfSigned: {}
+{{- end }}
 {{- end }}
 {{- end }}

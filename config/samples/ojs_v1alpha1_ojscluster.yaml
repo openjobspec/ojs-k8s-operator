@@ -1,5 +1,5 @@
-# Example OJSCluster resource (beta)
-apiVersion: ojs.openjobspec.dev/v1beta1
+# Example OJSCluster resource
+apiVersion: ojs.openjobspec.dev/v1alpha1
 kind: OJSCluster
 metadata:
   name: production
@@ -14,7 +14,7 @@ spec:
 
   # Server configuration
   replicas: 3
-  image: ghcr.io/openjobspec/ojs-backend-postgres:latest
+  image: ghcr.io/openjobspec/ojs-backend-postgres:v0.5.0
   resources:
     requests:
       cpu: "500m"

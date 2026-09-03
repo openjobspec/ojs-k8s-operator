@@ -14,7 +14,7 @@ type OJSClusterSpec struct {
 	// +kubebuilder:default=2
 	Replicas *int32 `json:"replicas,omitempty"`
 	// Image to use for the OJS server.
-	// +kubebuilder:default="ghcr.io/openjobspec/ojs-server:latest"
+	// +kubebuilder:default="ghcr.io/openjobspec/ojs-server:v0.5.0"
 	Image string `json:"image,omitempty"`
 	// Worker auto-scaling configuration.
 	AutoScaling *AutoScalingSpec `json:"autoScaling,omitempty"`
@@ -55,8 +55,10 @@ type PDBSpec struct {
 	// Enabled creates a PodDisruptionBudget for the server deployment (default true for replicas > 1).
 	Enabled *bool `json:"enabled,omitempty"`
 	// MinAvailable is the minimum number of pods that must remain available.
+	// +kubebuilder:validation:Minimum=0
 	MinAvailable *int32 `json:"minAvailable,omitempty"`
 	// MaxUnavailable is the maximum number of pods that can be unavailable.
+	// +kubebuilder:validation:Minimum=0
 	MaxUnavailable *int32 `json:"maxUnavailable,omitempty"`
 }
 

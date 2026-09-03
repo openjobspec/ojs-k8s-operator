@@ -24,11 +24,14 @@ spec:
       terminationGracePeriodSeconds: 10
       containers:
         - name: manager
-          image: ghcr.io/openjobspec/ojs-k8s-operator:v0.1.0
+          image: ghcr.io/openjobspec/ojs-k8s-operator:v0.5.0
           command:
             - /manager
           args:
             - --leader-elect
+          env:
+            - name: ENABLE_WEBHOOKS
+              value: "false"
           ports:
             - name: health
               containerPort: 8081

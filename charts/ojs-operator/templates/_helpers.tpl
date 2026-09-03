@@ -68,3 +68,18 @@ Operator image
 {{- define "ojs-operator.image" -}}
 {{- printf "%s:%s" .Values.image.repository (.Values.image.tag | default .Chart.AppVersion) }}
 {{- end }}
+
+{{/*
+Webhook certificate resources.
+*/}}
+{{- define "ojs-operator.webhookCertSecretName" -}}
+{{- printf "%s-webhook-server-cert" (include "ojs-operator.fullname" .) }}
+{{- end }}
+
+{{- define "ojs-operator.webhookCertDir" -}}
+/tmp/k8s-webhook-server/serving-certs
+{{- end }}
+
+{{- define "ojs-operator.webhookIssuerName" -}}
+{{- default (printf "%s-selfsigned-issuer" (include "ojs-operator.fullname" .)) .Values.webhook.certManager.issuerRef.name }}
+{{- end }}

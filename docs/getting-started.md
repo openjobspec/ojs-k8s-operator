@@ -17,6 +17,11 @@ helm install ojs-operator ./charts/ojs-operator \
   --namespace ojs-system --create-namespace
 ```
 
+The Helm chart enables leader election and validating webhooks by default. With
+the default settings, cert-manager provisions the webhook serving certificate.
+Disable admission webhooks with `--set webhook.enabled=false` if certificate
+provisioning is unavailable.
+
 Verify the operator is running:
 
 ```bash
@@ -33,6 +38,12 @@ kubectl apply -f config/crd/
 kubectl apply -f config/rbac/
 kubectl apply -f config/manager/deployment.yaml
 ```
+
+The raw manager Deployment keeps leader election enabled, but explicitly sets
+`ENABLE_WEBHOOKS=false` because these manifests do not provision or mount
+serving certificates. To opt in, supply and mount valid webhook TLS material,
+create the required admission webhook resources, set `WEBHOOK_CERT_DIR` to the
+mount path, and change `ENABLE_WEBHOOKS` to `true`.
 
 ## Deploy Your First OJS Cluster
 
@@ -202,4 +213,3 @@ kubectl delete ojscluster my-ojs
 - [Configuration Reference](configuration.md) — All CRD fields documented
 - [Architecture](architecture.md) — How the operator works internally
 - [Troubleshooting](troubleshooting.md) — Common issues and solutions
-

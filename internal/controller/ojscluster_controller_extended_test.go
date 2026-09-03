@@ -9,6 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -369,9 +370,17 @@ func TestReconcile_EmbeddedUnsupportedBackend(t *testing.T) {
 		NamespacedName: types.NamespacedName{Name: "unsupported-embedded", Namespace: "default"},
 	}
 
-	_, err := r.Reconcile(context.Background(), req)
+	result, err := r.Reconcile(context.Background(), req)
 	if err == nil {
 		t.Fatal("expected error for unsupported embedded backend type")
+	}
+	// Regression: Reconcile must return a zero Result alongside a non-nil
+	// error. controller-runtime silently discards Result.RequeueAfter (and
+	// logs a warning) whenever the error is non-nil, relying on its own
+	// rate-limited backoff instead -- so returning a non-zero RequeueAfter
+	// here was previously dead weight that only produced log noise.
+	if result != (ctrl.Result{}) {
+		t.Errorf("expected zero Result alongside a non-nil error, got %+v", result)
 	}
 }
 
